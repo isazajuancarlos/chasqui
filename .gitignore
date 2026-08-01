@@ -1,0 +1,10 @@
+/target
+/interfaz/node_modules/
+/interfaz/dist/
+/interfaz/.angular/
+
+# Nunca en el repositorio: credenciales de clientes y conversaciones.
+.env
+*.db
+*.sqlite*
+/datos/
