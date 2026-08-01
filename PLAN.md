@@ -145,7 +145,35 @@ base por instancia.
 
 ---
 
-## 7. Estado
+## 7. Precios
+
+En [`PROPUESTA.md`](PROPUESTA.md), con las cifras en pesos y dólares y el
+razonamiento de dónde salen. Tres paquetes: 450, 850 y 1.200 dólares, más
+acompañamiento mensual opcional.
+
+Lo que hay que entender del modelo: **el primer cliente paga el desarrollo y del
+segundo en adelante el margen es casi entero**, porque es el mismo binario
+configurado. Por eso no se cotiza por horas — el trabajo baja y el valor
+entregado no.
+
+### El coste de operar es casi cero, y eso hay que decirlo antes de que pregunten
+
+Meta cobra **por mensaje** desde julio de 2025, y en Colombia:
+
+| | Coste |
+|---|---|
+| Responder dentro de la ventana de 24 h | **gratis** |
+| Utilidad y autenticación | USD 0,0008 |
+| Marketing | USD 0,0125 |
+
+**Un asistente de atención responde a quien le escribe**, así que la mayor parte
+del tráfico no cuesta nada. Colombia tiene además de las tarifas más bajas del
+mundo. Solo se paga cuando el negocio inicia la conversación.
+
+El coste real de operación no es Meta: es el modelo de lenguaje, y ronda un dólar
+por cada mil conversaciones.
+
+## 8. Estado
 
 Nada implementado. Este documento es el plan, no un informe de avance.
 
