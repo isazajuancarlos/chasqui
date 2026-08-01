@@ -34,6 +34,14 @@ pub enum Motivo {
     NoSabe(String),
     /// Llegó algo que el bot no sabe leer (una foto, un audio, una ubicación).
     NoSoportado(String),
+    /// No se pudo responder por un fallo técnico: Meta rechazó el envío, la red
+    /// se cayó, el token caducó.
+    ///
+    /// No lo produce [`atender`] —es un fallo de infraestructura, no una
+    /// decisión— pero pertenece a este vocabulario: la cola de escalados es la
+    /// única superficie donde una persona ve que alguien se quedó sin respuesta.
+    /// Un fallo de envío que solo va al log es un cliente ignorado en silencio.
+    FalloTecnico(String),
 }
 
 /// Lo que hay que hacer, en orden.

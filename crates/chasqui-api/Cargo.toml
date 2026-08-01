@@ -1,0 +1,39 @@
+[package]
+name = "chasqui-api"
+description = "El servidor de Chasqui: webhooks de Meta, envío y panel."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "chasqui_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chasqui"
+path = "src/main.rs"
+
+[dependencies]
+chasqui-dominio = { path = "../chasqui-dominio" }
+chasqui-datos = { path = "../chasqui-datos" }
+axum = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+# Para hablarle al servidor como le habla Meta: se levanta el binario de verdad
+# y se le manda una petición HTTP firmada (directiva 28).
+reqwest = { workspace = true }

@@ -24,7 +24,11 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",
     "sqlite",
+    # `migrate` trae el motor; `macros` trae `migrate!`, que empotra los .sql en
+    # el binario. Hacen falta las dos: con solo `migrate` compila el motor y NO
+    # el macro, y el error no lo dice.
     "migrate",
+    "macros",
     "chrono",
 ] }
 axum = "0.8"

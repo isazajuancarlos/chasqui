@@ -82,7 +82,7 @@ pub async fn abrir(url: &str) -> Resultado<SqlitePool> {
         .busy_timeout(std::time::Duration::from_secs(5));
 
     let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opciones).await?;
-    sqlx::migrate!("migraciones").run(&pool).await?;
+    sqlx::migrate!("./migraciones").run(&pool).await?;
     Ok(pool)
 }
 
@@ -102,7 +102,7 @@ mod pruebas {
             .connect_with(opciones)
             .await
             .unwrap();
-        sqlx::migrate!("migraciones").run(&pool).await.unwrap();
+        sqlx::migrate!("./migraciones").run(&pool).await.unwrap();
         pool
     }
 

@@ -1,0 +1,126 @@
+<!-- SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas -->
+# Cómo se integra Chasqui con lo que ya tiene el cliente
+
+Pregunta de Juan, 2026-08-01: *«¿cómo se integra a aplicaciones web y móviles y
+otras que requiera el cliente, como los ejemplos de Workana?»*
+
+La respuesta corta es que **son cuatro costuras distintas**, y confundirlas es el
+error que convierte un producto en un proyecto a medida. Tres de las cinco
+peticiones de Workana piden algo de aquí, y ninguna pide lo mismo:
+
+| Petición | Lo que pide de verdad | Costura |
+|---|---|---|
+| #1 «integrarse con nuestras operaciones actuales», toma de pedidos y precios | leer **sus datos** | 2 |
+| #3 WhatsApp, Instagram y Facebook | **más canales** | 1 |
+| #5 «escalar y añadir funcionalidades» | que no haya que reescribirlo | las cuatro |
+
+---
+
+## Costura 1 — El canal: **dónde** ocurre la conversación
+
+Ya está resuelta, y es la razón por la que `AdaptadorCanal` existe desde el
+primer día aunque hoy solo se venda WhatsApp.
+
+Una web y una app móvil **no son un caso especial: son un canal más**. Lo que
+cambia de WhatsApp a un chat en la web es la traducción del mensaje que entra y
+la forma de enviarlo — exactamente lo que ese trait aísla. Debajo, ni el aviso de
+privacidad, ni la base de conocimiento, ni el escalado a una persona, ni la
+ventana de conversación cambian una línea.
+
+Lo que costaría cada uno:
+
+- **Chat en la web del cliente** — un adaptador `web` + un endpoint (`POST` para
+  mandar, SSE para recibir) + un `<script>` que el cliente pega en su sitio. La
+  autenticación **no** puede ser la firma HMAC de Meta: ahí el emisor es un
+  navegador y el secreto sería público. Va con clave de sitio + lista de dominios
+  permitidos, configurada por el cliente.
+- **App móvil del cliente** — la misma API del canal web con una clave de app.
+  No hay adaptador nuevo: una app y una web son el mismo canal con otro cliente.
+- **Otro mensajero (Telegram, correo, SMS)** — un adaptador y ya.
+
+**Determinación**: no se construye todavía. Ninguna de las cinco peticiones pide
+un chat web, y construir para el caso que nadie pidió es la sobrecorrección de la
+directiva 19. Lo que sí estaba bien era dejar la interfaz puesta: cuando un
+cliente lo pida, es un archivo, no un rediseño.
+
+## Costura 2 — Los datos del cliente: que el bot responda con **su** información
+
+Esto es lo que pide la petición #1 y es lo que de verdad separa un bot que
+impresiona en la demostración de uno que sirve: contestar «su pedido 1234 sale
+mañana» exige mirar el sistema del cliente.
+
+**No es un canal, es una fuente.** Y no se resuelve programando la integración de
+cada cliente —eso es volver a Workana, un proyecto desde cero por cliente—, sino
+con **acciones HTTP configurables**: el cliente declara en el panel
+
+- los disparadores (igual que en una pregunta frecuente),
+- qué datos capturar de la conversación (`numero_pedido`),
+- la URL de su API, con esos datos interpolados,
+- sus credenciales, cifradas en reposo **igual que el token de Meta**,
+- y la plantilla de respuesta, con los campos de la respuesta JSON interpolados.
+
+Así, «¿dónde está mi pedido 1234?» se convierte en un `GET
+https://cliente/api/pedidos/1234` y en «Su pedido va en camino, llega el 3 de
+agosto», **sin una línea de código nuestra**. Y el cliente que no tenga API no
+configura nada y no pierde nada.
+
+Tres cosas que hay que acotar antes de escribir esto, porque son las que salen
+caras:
+
+1. **Tiempo de espera corto y un solo intento.** El manejador del webhook está
+   esperando; si la API del cliente tarda 30 s, Meta reintenta por encima y el
+   cliente recibe la respuesta cuatro veces.
+2. **Si la API del cliente falla, se escala a una persona** — no se inventa una
+   respuesta. Es la directiva 20 aplicada al dato ajeno.
+3. **Las credenciales del cliente hacia su propio sistema son datos suyos**: se
+   cifran con la misma bóveda y nunca salen en un log ni en el panel.
+
+**Determinación**: es la siguiente pieza de valor real, por encima del panel
+Angular. Queda como tarea, no se improvisa aquí.
+
+## Costura 3 — Avisar al sistema del cliente cuando pasa algo
+
+Al revés que la anterior: un pedido tomado, una conversación escalada, un
+contacto nuevo. El cliente configura una URL suya y Chasqui le manda el evento
+firmado con HMAC (lo mismo que Meta hace con nosotros, y por lo mismo).
+
+Con eso el bot entra en su CRM, su ERP o su correo sin que nosotros sepamos cuál
+es.
+
+## Costura 4 — La API de Chasqui, para que sus aplicaciones lo consuman
+
+El panel Angular que va embebido en el binario va a hablar con una API REST:
+conversaciones, historial, cola de escalados, ajustes, base de conocimiento.
+**Esa misma API, con un token, es la integración para las aplicaciones del
+cliente**: un agente humano puede atender desde la app interna del negocio en vez
+de desde nuestro panel.
+
+Es decir: el panel no es una pantalla con acceso privilegiado a la base, es el
+primer consumidor de la API. Si se hace al revés, la integración exige después un
+segundo sistema.
+
+---
+
+## Lo que hay que decirle al cliente, y que ningún competidor dice
+
+**Todo esto es configuración, no desarrollo.** Ese es el producto: en Workana,
+cada una de esas integraciones es un proyecto a medida que alguien construye
+desde cero y que solo sirve para ese cliente. Aquí es el mismo binario con otra
+fila en la base.
+
+Y la contrapartida honesta, que va por escrito en la propuesta: **lo que se
+integra es lo que el cliente pueda exponer**. Si su sistema no tiene API, la
+integración no existe por mucho que se pague — lo que hay entonces es una base de
+conocimiento que él mantiene, que es un producto legítimo y otro precio.
+
+---
+
+## Estado
+
+| Costura | Hoy |
+|---|---|
+| 1 · Canal (WhatsApp, Instagram, Messenger) | **hecha**, con los tres adaptadores |
+| 1 · Canal web / móvil | interfaz lista, adaptador **sin construir** (nadie lo ha pedido) |
+| 2 · Leer los datos del cliente | **sin construir** — la siguiente pieza |
+| 3 · Avisar a su sistema | sin construir |
+| 4 · API propia + panel | sin construir |

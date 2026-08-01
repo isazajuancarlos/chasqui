@@ -17,8 +17,61 @@ datos se responde sola.
 
 ## Estado
 
-En diseño. El plan está en [`PLAN.md`](PLAN.md) y sale de cinco peticiones
-reales del mercado, no de suposiciones.
+El plan está en [`PLAN.md`](PLAN.md) y sale de cinco peticiones reales del
+mercado, no de suposiciones. Lo construido hasta hoy:
+
+| Pieza del MVP | Estado |
+|---|---|
+| Canal WhatsApp Cloud API (webhook + envío) | **funciona**, probado contra el binario real |
+| Instagram y Messenger | **funcionan** (un solo adaptador para los dos) |
+| Base de conocimiento y respuestas | **funciona** (disparadores; el modelo de lenguaje todavía no) |
+| Escalado a una persona | **funciona**, con cola y con el bot callándose |
+| Aviso de privacidad | **funciona**, y sin él el bot no atiende |
+| Credenciales del cliente cifradas en reposo | **funciona** (`guaca`, sobre Quipu) |
+| Flujos y toma de pedidos | pendiente |
+| Leer los datos del cliente (su API) | pendiente — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
+| Panel de configuración | pendiente; hoy se administra por la línea de órdenes |
+
+## Cómo se instala y se pone a andar
+
+Un solo ejecutable y un archivo SQLite. Nada más.
+
+```bash
+export CHASQUI_FRASE="…"              # cifra las credenciales del cliente (32+)
+export CHASQUI_SECRETO_APP="…"        # el de la app de Meta: verifica los webhooks
+export CHASQUI_TOKEN_VERIFICACION="…" # el del alta del webhook en la consola
+export CHASQUI_BD="sqlite://chasqui.db"
+
+# 1. El aviso de privacidad. No hay valor por defecto A PROPÓSITO: tiene que
+#    nombrar al responsable del tratamiento, que es el cliente. Sin él, no atiende.
+chasqui ajuste poner guion.aviso_privacidad "Sus datos los trata ACME S.A.S. …"
+
+# 2. El número del cliente. El token entra por la entrada estándar, no por un
+#    argumento: los argumentos quedan en el historial del shell y en `ps`.
+chasqui cuenta añadir --canal whatsapp --id <phone_number_id> --nombre Ventas
+
+# 3. Las preguntas frecuentes.
+chasqui conocimiento cargar preguntas.json
+
+# 4. A servir. Detrás de nginx con TLS; Meta exige https.
+chasqui servir
+```
+
+`chasqui escalados` enumera quién está esperando a una persona.
+
+Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
+`/webhook/messenger`.
+
+## Qué se probó, y contra qué
+
+Además de las pruebas de cada pieza, hay una que **arranca el binario de verdad,
+le da de alta una cuenta por su línea de órdenes y le manda un webhook firmado
+como lo firma Meta**, con un sustituto de la API Graph en localhost
+(`crates/chasqui-api/tests/frontera_meta.rs`). Es la que comprueba lo que ninguna
+prueba de unidad puede: que la firma se verifica sobre los bytes que llegaron,
+que el token cifrado se descifra y llega a la cabecera `Authorization`, que el
+aviso de privacidad sale **antes** que la respuesta, y que 120 conversaciones a la
+vez se atienden todas.
 
 ## Licencia
 

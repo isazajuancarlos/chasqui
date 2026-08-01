@@ -190,13 +190,20 @@ Los tres que más caros salen si se olvidan:
 
 ## 9. Estado
 
-Nada implementado. Este documento es el plan, no un informe de avance.
+Construido el 2026-08-01. Este documento sigue siendo el plan; el avance real lo
+lleva el [`README.md`](README.md), y por encima de los dos manda el repositorio.
 
 | Pieza | Estado |
 |---|---|
-| Canal WhatsApp | pendiente |
-| Base de conocimiento y respuestas | pendiente |
+| Canal WhatsApp | **hecho** — webhook firmado, envío e idempotencia |
+| Instagram y Messenger | **hecho** — un solo adaptador, sin bucle de eco |
+| Base de conocimiento y respuestas | **hecho** por disparadores; falta el modelo de lenguaje |
+| Escalado a una persona | **hecho** — cola por antigüedad, y el bot se calla |
+| Aviso de privacidad y retención | plantillas en `legal/`; el aviso ya sale en cada conversación y sin él el bot no atiende. La retención y la supresión, pendientes |
+| Credenciales del cliente cifradas en reposo | **hecho** (`guaca`, sobre Quipu) |
 | Flujos y toma de pedidos | pendiente |
-| Escalado a una persona | pendiente |
-| Panel de configuración | pendiente |
-| Aviso de privacidad y retención | plantillas listas en `legal/`; falta el mecanismo en código |
+| Panel de configuración | pendiente — hoy se administra por la línea de órdenes |
+
+Y una costura que este plan no separaba y que hay que separar, porque de ella
+depende media venta: **integrarse con los sistemas del cliente no es lo mismo que
+soportar más canales**. Está en [`docs/INTEGRACION.md`](docs/INTEGRACION.md).
