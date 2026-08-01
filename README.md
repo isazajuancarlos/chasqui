@@ -24,7 +24,9 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 |---|---|
 | Canal WhatsApp Cloud API (webhook + envío) | **funciona**, probado contra el binario real |
 | Instagram y Messenger | **funcionan** (un solo adaptador para los dos) |
-| Base de conocimiento y respuestas | **funciona** (disparadores; el modelo de lenguaje todavía no) |
+| Base de conocimiento y respuestas | **funciona** (disparadores exactos) |
+| Respuestas **con los documentos del cliente** | **funciona** — modelo configurable, y si no está en los documentos no lo inventa |
+| Retención y supresión (habeas data) | **funciona** — plazo configurable, purga diaria y derecho de supresión |
 | Escalado a una persona | **funciona**, con cola y con el bot callándose |
 | Aviso de privacidad | **funciona**, y sin él el bot no atiende |
 | Credenciales del cliente cifradas en reposo | **funciona** (`guaca`, sobre Quipu) |
@@ -53,15 +55,24 @@ chasqui cuenta añadir --canal whatsapp --id <phone_number_id> --nombre Ventas
 # 3. Las preguntas frecuentes.
 chasqui conocimiento cargar preguntas.json
 
-# 4. Opcional: las consultas a SU sistema, para que el bot conteste con sus
+# 4. Opcional: sus documentos y el modelo que los redacta. La clave es del
+#    cliente; la URL puede ser un proveedor o un modelo en su propia máquina.
+chasqui documento cargar politicas.md
+chasqui modelo configurar --url https://api.proveedor.com/v1 --nombre modelo-x
+
+# 5. El plazo de retención. NO hay valor por defecto: lo decide el cliente, que
+#    es el responsable del tratamiento. Sin él no se borra nada y se avisa.
+chasqui ajuste poner retencion.dias 90
+
+# 6. Opcional: las consultas a SU sistema, para que el bot conteste con sus
 #    datos («su pedido 1234 llega el martes»). El archivo puede llevar sus
 #    credenciales: se cifran al guardarlas y luego se borra el archivo.
 chasqui consulta cargar consultas.json
 
-# 5. Quién entra al panel a atender. La contraseña, por la entrada estándar.
+# 7. Quién entra al panel a atender. La contraseña, por la entrada estándar.
 chasqui usuario crear --correo ana@acme.com --nombre Ana
 
-# 6. A servir. Detrás de nginx con TLS; Meta exige https, y la cookie del panel
+# 8. A servir. Detrás de nginx con TLS; Meta exige https, y la cookie del panel
 #    va marcada `Secure` salvo que se pida lo contrario con CHASQUI_SIN_TLS=1.
 chasqui servir
 ```
@@ -74,6 +85,9 @@ que pedirle a un CDN, que es lo que hace cierta la frase de que las
 conversaciones no salen del servidor del cliente.
 
 `chasqui escalados` enumera lo mismo desde la línea de órdenes.
+`chasqui olvidar --contacto 573001…` ejerce el derecho de supresión y deja la
+constancia; `chasqui purgar` borra lo que pasó del plazo (y se hace solo cada
+24 h mientras el servidor esté levantado).
 
 Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
 `/webhook/messenger`.

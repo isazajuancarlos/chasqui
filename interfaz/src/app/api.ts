@@ -25,6 +25,14 @@ export interface Pregunta { id: number; titulo: string; respuesta: string; dispa
 export interface Consulta {
   id: number; titulo: string; url: string; activa: boolean; con_credenciales: boolean;
 }
+export interface Documento {
+  id: number; titulo: string; caracteres: number; activo: boolean;
+}
+export interface ModeloConfig { url: string; nombre: string; con_clave: boolean; }
+export interface Constancia {
+  contacto: string; motivo: string; conversaciones: number;
+  mensajes: number; ejecutada_en: string;
+}
 export interface Cuenta {
   id: number; canal: string; id_externo: string; nombre: string; activa: boolean;
 }
@@ -56,6 +64,13 @@ export class Api {
     return this.http.post<void>(`/api/conversaciones/${id}/devolver-al-bot`, {});
   }
 
+  /** El derecho de supresión: borra TODO el historial del contacto. */
+  olvidarContacto(id: number) {
+    return this.http.post<{ conversaciones: number; mensajes: number }>(
+      `/api/conversaciones/${id}/olvidar`, {});
+  }
+  supresiones() { return this.http.get<Constancia[]>('/api/supresiones'); }
+
   ajustes() { return this.http.get<Record<string, string>>('/api/ajustes'); }
   ponerAjuste(clave: string, valor: string) {
     return this.http.put<void>('/api/ajustes', { clave, valor });
@@ -75,4 +90,10 @@ export class Api {
   }
 
   cuentas() { return this.http.get<Cuenta[]>('/api/cuentas'); }
+
+  documentos() { return this.http.get<Documento[]>('/api/documentos'); }
+  activarDocumento(id: number, activa: boolean) {
+    return this.http.patch<void>(`/api/documentos/${id}`, { activa });
+  }
+  modelo() { return this.http.get<ModeloConfig | null>('/api/modelo'); }
 }

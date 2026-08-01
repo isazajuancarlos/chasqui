@@ -20,7 +20,7 @@
 use chrono::Utc;
 
 use chasqui_datos::{
-    ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, escalado,
+    ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado,
     mensaje as bd_mensaje,
 };
 use chasqui_dominio::atencion::{Accion, Contexto, Motivo, atender};
@@ -29,6 +29,7 @@ use chasqui_dominio::{MensajeEntrante, MensajeSaliente};
 
 use crate::canales::{AdaptadorCanal, trozos};
 use crate::consultas;
+use crate::modelo;
 use crate::servicio::Servicio;
 
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +99,15 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
     let base = conocimiento::activas(pool).await?;
     let consultas = bd_consulta::activas(pool).await?;
 
+    // Los documentos solo se traen si hay modelo: sin quien redacte, unos
+    // fragmentos no se le pueden enseñar a nadie. Así el dominio no necesita
+    // saber si el modelo existe.
+    let el_modelo = documento::modelo(pool, &servicio.boveda).await?;
+    let documentos = match &el_modelo {
+        Some(_) => documento::trozos(pool).await?,
+        None => Vec::new(),
+    };
+
     let acciones = atender(&Contexto {
         clase: &entrante.clase,
         estado: conv.estado,
@@ -105,6 +115,7 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
         guion: &guion,
         conocimiento: &base,
         consultas: &consultas,
+        documentos: &documentos,
         esperando: conv.esperando,
     });
 
@@ -137,6 +148,59 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
 
             Accion::OlvidarEspera => {
                 conversacion::poner_espera(pool, conv.id, None).await?;
+            }
+
+            Accion::PreguntarAlModelo { instrucciones, peticion } => {
+                // `atender` solo produce esta acción cuando hay documentos, y
+                // solo hay documentos si hay modelo. El `else` es defensa.
+                let Some(m) = &el_modelo else { continue };
+
+                let redactada = modelo::redactar(
+                    &servicio.hacia_el_cliente,
+                    m,
+                    &instrucciones,
+                    &peticion,
+                )
+                .await;
+
+                let respuesta = match redactada {
+                    // El modelo dijo que la respuesta no está en los documentos.
+                    // Eso NO es un fallo: es la regla funcionando, y va a una
+                    // persona igual que si no hubiera documentos.
+                    Ok(texto) if chasqui_dominio::documentos::dijo_que_no_sabe(&texto) => None,
+                    Ok(texto) => Some(texto),
+                    Err(e) => {
+                        eprintln!("chasqui: falló el modelo: {e}");
+                        None
+                    }
+                };
+
+                match respuesta {
+                    Some(texto) => {
+                        enviados += enviar(
+                            servicio, adaptador, &cuenta, conv.id, &entrante.contacto, &texto,
+                            ahora, &mut escalado_hecho,
+                        )
+                        .await?;
+                    }
+                    None => {
+                        enviados += enviar(
+                            servicio,
+                            adaptador,
+                            &cuenta,
+                            conv.id,
+                            &entrante.contacto,
+                            &guion.sin_respuesta,
+                            ahora,
+                            &mut escalado_hecho,
+                        )
+                        .await?;
+                        let texto_original =
+                            entrante.clase.texto().unwrap_or_default().to_string();
+                        encolar(servicio, conv.id, &Motivo::NoSabe(texto_original), ahora).await?;
+                        escalado_hecho = true;
+                    }
+                }
             }
 
             Accion::Consultar { consulta_id, dato } => {

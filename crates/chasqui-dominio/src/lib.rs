@@ -19,8 +19,10 @@ pub mod canal;
 pub mod conocimiento;
 pub mod consulta;
 pub mod conversacion;
+pub mod documentos;
 pub mod guion;
 pub mod mensaje;
+pub mod retencion;
 pub mod texto;
 
 pub use atencion::{Accion, Contexto, Motivo, atender};

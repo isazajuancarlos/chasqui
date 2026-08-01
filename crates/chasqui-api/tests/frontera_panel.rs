@@ -471,3 +471,364 @@ async fn un_ajuste_inventado_se_rechaza_en_vez_de_guardarse() {
     assert_eq!(ajustes["guion.aviso_privacidad"], "Otro aviso");
     assert!(ajustes.get("guion.aviso_privasidad").is_none());
 }
+
+// --- Retención y supresión: el diferenciador que la propuesta vende ---
+
+#[tokio::test]
+async fn una_persona_pide_que_la_olviden_y_se_borra_de_verdad() {
+    // La promesa de la propuesta —«plazo decidido para cada dato»— se sostiene
+    // sobre esto. Hasta hoy el aviso salía y no se borraba nada nunca, que es
+    // peor que no prometerlo: el cliente cree que cumple.
+    let (graph, bitacora) = graph_falso().await;
+    let instancia = instancia("olvidar", &graph).await;
+
+    escribe_un_cliente(&instancia.base, "wamid.o1", "573001", "mi cédula es 1020304050").await;
+    escribe_un_cliente(&instancia.base, "wamid.o2", "573002", "yo soy otro").await;
+    esperar(&bitacora, 4).await;
+
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    let conversaciones: Vec<Value> = cliente
+        .get(format!("{}/api/conversaciones", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(conversaciones.len(), 2);
+    let mia = conversaciones
+        .iter()
+        .find(|c| c["contacto"] == "573001")
+        .expect("no está la conversación")
+        .clone();
+
+    let borrado = cliente
+        .post(format!("{}/api/conversaciones/{}/olvidar", instancia.base, mia["id"]))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(borrado.status(), 200);
+
+    // Se fue el suyo y SOLO el suyo (directiva 22: el alcance es el parámetro).
+    let quedan: Vec<Value> = cliente
+        .get(format!("{}/api/conversaciones", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(quedan.len(), 1, "se borró de más o de menos");
+    assert_eq!(quedan[0]["contacto"], "573002");
+
+    // Y el historial ya no existe: ni la cédula ni nada.
+    let historial = cliente
+        .get(format!("{}/api/conversaciones/{}", instancia.base, mia["id"]))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!historial.contains("1020304050"), "el contenido sobrevivió al borrado");
+
+    // Queda la constancia, que es lo que se enseña el día que alguien reclama.
+    let constancias: Vec<Value> = cliente
+        .get(format!("{}/api/supresiones", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(constancias.len(), 1);
+    assert_eq!(constancias[0]["contacto"], "573001");
+    assert_eq!(constancias[0]["motivo"], "peticion");
+    // Y la constancia NO guarda el contenido: eso sería no haber borrado.
+    assert!(!constancias[0].to_string().contains("1020304050"));
+}
+
+#[tokio::test]
+async fn un_plazo_de_retencion_mal_escrito_no_se_guarda() {
+    // El fallo que produce un sistema que PARECE cumplir: se guarda «3 meses»,
+    // la purga de esa noche no entiende el valor y no borra nada. Se rechaza al
+    // guardarlo, que es cuando hay alguien mirando la pantalla.
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("plazo", &graph).await;
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    for malo in ["3 meses", "0", "36500", ""] {
+        let r = cliente
+            .put(format!("{}/api/ajustes", instancia.base))
+            .json(&json!({ "clave": "retencion.dias", "valor": malo }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 400, "se aceptó el plazo {malo:?}");
+    }
+
+    let bueno = cliente
+        .put(format!("{}/api/ajustes", instancia.base))
+        .json(&json!({ "clave": "retencion.dias", "valor": "90" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bueno.status(), 204);
+}
+
+#[tokio::test]
+async fn el_panel_deja_crear_una_pregunta_y_el_bot_la_responde_en_seguida() {
+    // «Usted cambia respuestas sin tocar código», dice la propuesta. Hasta hoy
+    // el panel las enseñaba y no las creaba: la frase era falsa por una pantalla.
+    let (graph, bitacora) = graph_falso().await;
+    let instancia = instancia("crear-pregunta", &graph).await;
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    let creada = cliente
+        .post(format!("{}/api/conocimiento", instancia.base))
+        .json(&json!({
+            "titulo": "Horario",
+            "respuesta": "Atendemos de 8 a 6.",
+            "disparadores": ["horario", "a que hora abren"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(creada.status(), 201);
+
+    // Y el bot la usa YA, sin reiniciar: la base de conocimiento se lee en cada
+    // mensaje. Si se cacheara en el arranque, esto se pondría rojo.
+    escribe_un_cliente(&instancia.base, "wamid.q1", "573001", "¿a qué hora abren?").await;
+    esperar(&bitacora, 2).await;
+    assert_eq!(textos(&bitacora)[1], "Atendemos de 8 a 6.");
+}
+
+#[tokio::test]
+async fn una_pregunta_sin_disparadores_se_rechaza() {
+    // Una entrada sin disparadores no responde a nada, y en la lista del panel
+    // se ve igual que una que funciona: el cliente creería tenerla configurada.
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("pregunta-vacia", &graph).await;
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    for cuerpo in [
+        json!({ "titulo": "X", "respuesta": "algo", "disparadores": [] }),
+        json!({ "titulo": "X", "respuesta": "algo", "disparadores": ["  ", ""] }),
+        json!({ "titulo": "X", "respuesta": "   ", "disparadores": ["horario"] }),
+    ] {
+        let r = cliente
+            .post(format!("{}/api/conocimiento", instancia.base))
+            .json(&cuerpo)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 400, "se aceptó {cuerpo}");
+    }
+}
+
+// --- «Con sus documentos»: la promesa que está en los tres paquetes ---
+
+/// Un modelo de mentira que habla el dialecto de OpenAI.
+///
+/// Devuelve lo que se le diga, y anota lo que le pidieron: así la prueba puede
+/// comprobar que al modelo se le entregaron los fragmentos del cliente y las
+/// instrucciones de no inventar — que es lo único que separa «responde con sus
+/// documentos» de «responde lo que le parezca».
+async fn modelo_falso(respuesta: &'static str) -> (String, Arc<Mutex<Vec<Value>>>) {
+    let bitacora: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+
+    async fn completar(
+        State((bitacora, respuesta)): State<(Arc<Mutex<Vec<Value>>>, &'static str)>,
+        cuerpo: String,
+    ) -> axum::Json<Value> {
+        bitacora.lock().unwrap().push(serde_json::from_str(&cuerpo).unwrap_or(Value::Null));
+        axum::Json(json!({
+            "choices": [{ "message": { "role": "assistant", "content": respuesta } }]
+        }))
+    }
+
+    let app = Router::new()
+        .route("/chat/completions", post(completar))
+        .with_state((bitacora.clone(), respuesta));
+    let escucha = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let puerto = escucha.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(escucha, app).await.unwrap() });
+    (format!("http://127.0.0.1:{puerto}"), bitacora)
+}
+
+/// Carga un documento y configura el modelo, por la línea de órdenes.
+fn con_documentos(instancia: &Instancia, graph: &str, url_modelo: &str) {
+    let bd = format!("sqlite://{}/chasqui.db", instancia.dir.display());
+    let puerto = 0; // no se usa: estas órdenes no levantan servidor
+
+    let archivo = instancia.dir.join("politicas.md");
+    std::fs::write(
+        &archivo,
+        "Devoluciones\n\nSe aceptan devoluciones dentro de los 30 días siguientes a la compra, \
+         presentando la factura.\n\nGarantía\n\nLos electrodomésticos tienen un año de garantía.",
+    )
+    .unwrap();
+
+    let salida = orden(&bd, graph, puerto)
+        .args(["documento", "cargar", archivo.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(salida.status.success(), "no se pudo cargar el documento: {salida:?}");
+
+    let mut modelo = orden(&bd, graph, puerto);
+    modelo.args(["modelo", "configurar", "--url", url_modelo, "--nombre", "modelo-de-prueba"]);
+    con_entrada(modelo, "sk-CLAVE-DEL-CLIENTE", "configurar el modelo");
+}
+
+#[tokio::test]
+async fn el_bot_responde_con_los_documentos_del_cliente() {
+    let (graph, bitacora) = graph_falso().await;
+    let (url_modelo, pedidos) =
+        modelo_falso("Se aceptan devoluciones dentro de los 30 días, con la factura.").await;
+    let instancia = instancia("documentos", &graph).await;
+    con_documentos(&instancia, &graph, &url_modelo);
+
+    escribe_un_cliente(&instancia.base, "wamid.d1", "573001", "¿hacen devoluciones?").await;
+    esperar(&bitacora, 2).await;
+
+    assert_eq!(
+        textos(&bitacora)[1],
+        "Se aceptan devoluciones dentro de los 30 días, con la factura."
+    );
+
+    // Y al modelo se le entregó lo que tenía que entregársele.
+    let pedidos = pedidos.lock().unwrap().clone();
+    assert_eq!(pedidos.len(), 1, "se llamó {} veces al modelo", pedidos.len());
+    let sistema = pedidos[0].pointer("/messages/0/content").unwrap().as_str().unwrap();
+    let usuario = pedidos[0].pointer("/messages/1/content").unwrap().as_str().unwrap();
+
+    assert!(sistema.contains("NO_ESTA_EN_LOS_DOCUMENTOS"), "no se le dijo qué hacer si no sabe");
+    assert!(sistema.to_lowercase().contains("no inventes"));
+    assert!(usuario.contains("30 días"), "no se le entregó el fragmento del cliente");
+    assert!(usuario.contains("¿hacen devoluciones?"));
+    // Determinista: la misma pregunta, la misma respuesta.
+    assert_eq!(pedidos[0]["temperature"], 0.0);
+}
+
+#[tokio::test]
+async fn si_el_modelo_dice_que_no_esta_en_los_documentos_va_a_una_persona() {
+    // La regla que impide el fallo caro: el bot inventando una política que el
+    // negocio no tiene, con el tono de quien la sabe.
+    let (graph, bitacora) = graph_falso().await;
+    let (url_modelo, _) = modelo_falso("NO_ESTA_EN_LOS_DOCUMENTOS").await;
+    let instancia = instancia("modelo-no-sabe", &graph).await;
+    con_documentos(&instancia, &graph, &url_modelo);
+
+    escribe_un_cliente(&instancia.base, "wamid.d2", "573001", "¿la garantía cubre devoluciones?")
+        .await;
+    esperar(&bitacora, 2).await;
+
+    let respuesta = textos(&bitacora)[1].clone();
+    assert!(
+        respuesta.to_lowercase().contains("persona"),
+        "contestó {respuesta:?} en vez de llamar a alguien"
+    );
+    assert!(!respuesta.contains("NO_ESTA"), "se le mandó al cliente la palabra clave interna");
+
+    // Y quedó en la cola, con lo que preguntaron.
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+    let escalados: Vec<Value> = cliente
+        .get(format!("{}/api/escalados", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(escalados.len(), 1);
+    assert_eq!(escalados[0]["detalle"], "¿la garantía cubre devoluciones?");
+}
+
+#[tokio::test]
+async fn si_el_modelo_no_responde_no_se_inventa_nada() {
+    // El modelo apunta a un puerto donde no hay nadie.
+    let (graph, bitacora) = graph_falso().await;
+    let puerto_muerto = puerto_libre();
+    let instancia = instancia("modelo-caido", &graph).await;
+    con_documentos(&instancia, &graph, &format!("http://127.0.0.1:{puerto_muerto}"));
+
+    escribe_un_cliente(&instancia.base, "wamid.d3", "573001", "¿hacen devoluciones?").await;
+    esperar(&bitacora, 2).await;
+
+    let respuesta = textos(&bitacora)[1].clone();
+    assert!(respuesta.to_lowercase().contains("persona"), "contestó {respuesta:?}");
+    assert!(!respuesta.contains("30 días"), "se inventó una respuesta con el modelo caído");
+}
+
+#[tokio::test]
+async fn el_panel_no_entrega_la_clave_del_modelo_ni_el_contenido_de_los_documentos() {
+    let (graph, _) = graph_falso().await;
+    let (url_modelo, _) = modelo_falso("lo que sea").await;
+    let instancia = instancia("modelo-secreto", &graph).await;
+    con_documentos(&instancia, &graph, &url_modelo);
+
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    for ruta in ["/api/modelo", "/api/documentos"] {
+        let texto = cliente
+            .get(format!("{}{ruta}", instancia.base))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(!texto.contains("sk-CLAVE-DEL-CLIENTE"), "{ruta} entregó la clave del modelo");
+        assert!(!texto.contains("30 días"), "{ruta} entregó el contenido del documento");
+    }
+
+    // Pero sí dice que HAY clave: «no responde» y «no tiene credenciales» son
+    // dos problemas distintos.
+    let modelo: Value = cliente
+        .get(format!("{}/api/modelo", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(modelo["con_clave"], true);
+    assert_eq!(modelo["nombre"], "modelo-de-prueba");
+}

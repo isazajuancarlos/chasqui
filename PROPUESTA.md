@@ -40,9 +40,13 @@ sistema los usa. Cuando la respuesta no está ahí, lo dice en vez de inventarla
 Consulta de precios y disponibilidad dentro de la conversación, sin mandar al
 cliente a otra parte.
 
-**4. Toma de pedidos**
-Flujos guiados que recogen los datos del pedido y se lo entregan listo por el
-canal que usted prefiera.
+**4. Consultas a su sistema**
+El asistente responde con **sus datos en vivo** —«su pedido 1234 llega el
+martes»— consultando la API de su sistema, si la tiene. Se configura una vez y no
+hace falta programar nada por cada consulta nueva.
+
+Si su sistema no tiene API, esto no se puede hacer por mucho que se pague: lo que
+hay entonces es la base de preguntas y documentos, que ya viene incluida.
 
 **5. Traspaso a una persona**
 Cuando el asistente no sabe, o cuando el cliente pide hablar con alguien, la
@@ -76,7 +80,7 @@ mencionar.
 | Panel de configuración | ✓ | ✓ | ✓ |
 | Aviso de privacidad y política de datos | ✓ | ✓ | ✓ |
 | Precios y catálogo | | ✓ | ✓ |
-| Toma de pedidos | | ✓ | ✓ |
+| Consultas a su sistema (su API) | | ✓ | ✓ |
 | Instagram y Messenger | | | ✓ |
 | **Precio (COP)** | **$1.415.000** | **$2.675.000** | **$3.775.000** |
 | **Precio (USD)** | **≈ 450** | **≈ 850** | **≈ 1.200** |
@@ -171,6 +175,10 @@ $70.000 COP mensuales**, casi todo servidor.
 - **No incluye redacción de sus contenidos.** El asistente responde con sus
   documentos: si el catálogo o las preguntas frecuentes solo están en la cabeza
   de alguien, hay que escribirlos primero. Podemos ayudarle y se cotiza aparte.
+- **No toma pedidos de varios pasos todavía.** El asistente responde, consulta
+  su sistema y pasa a una persona; un flujo que recoge cinco datos seguidos para
+  armar un pedido está en construcción y se cotiza aparte cuando esté. Se dice
+  aquí porque prometerlo y entregarlo a medias es peor que no ofrecerlo.
 - **El alcance es el de esta propuesta.** Lo que se pueda añadir después se
   cotiza aparte — el sistema está hecho para crecer, y eso es distinto de que
   todo lo que venga esté incluido en este precio.

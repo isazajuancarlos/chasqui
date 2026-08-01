@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 
 use chasqui_api::config::Config;
 use chasqui_api::{router, servicio::Servicio};
-use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, escalado, usuario};
+use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, documento, escalado, retencion, usuario};
 use chasqui_dominio::consulta::{Consulta, Metodo, TipoDato};
 use chasqui_dominio::Canal;
 
@@ -50,9 +50,57 @@ enum Orden {
     Consulta(OrdenConsulta),
     /// Quién está esperando a una persona.
     Escalados,
+    /// Borra lo que pasó del plazo de retención configurado.
+    ///
+    /// Se ejecuta sola una vez al día mientras el servidor esté levantado; esta
+    /// orden existe para hacerlo a mano y para poder verla en un cron si alguien
+    /// prefiere no depender del proceso.
+    Purgar,
+    /// Borra TODO el historial de un contacto: el derecho de supresión.
+    Olvidar {
+        #[arg(long)]
+        contacto: String,
+    },
     /// Las personas que entran al panel.
     #[command(subcommand)]
     Usuario(OrdenUsuario),
+    /// Los documentos con los que el asistente responde.
+    #[command(subcommand)]
+    Documento(OrdenDocumento),
+    /// El modelo de lenguaje del cliente.
+    #[command(subcommand)]
+    Modelo(OrdenModelo),
+}
+
+#[derive(Subcommand)]
+enum OrdenDocumento {
+    /// Carga un documento de texto (o Markdown). Si ya había uno con el mismo
+    /// título, lo reemplaza: dos versiones darían dos respuestas distintas.
+    Cargar {
+        archivo: String,
+        /// Con qué nombre se guarda. Por defecto, el del archivo.
+        #[arg(long)]
+        titulo: Option<String>,
+    },
+    Listar,
+}
+
+#[derive(Subcommand)]
+enum OrdenModelo {
+    /// Configura el modelo. **La clave se lee de la entrada estándar.**
+    ///
+    /// La URL puede ser la de un proveedor o la de un modelo que corra en la
+    /// máquina del cliente: en ese caso, sus conversaciones no salen ni al modelo.
+    Configurar {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        nombre: String,
+        /// Para un servidor propio sin autenticación.
+        #[arg(long)]
+        sin_clave: bool,
+    },
+    Ver,
 }
 
 #[derive(Subcommand)]
@@ -323,6 +371,100 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
 
+        Orden::Documento(OrdenDocumento::Cargar { archivo, titulo }) => {
+            let texto = std::fs::read_to_string(&archivo)?;
+            if texto.trim().is_empty() {
+                // Un documento vacío se cargaría, aparecería en la lista y no
+                // respondería nunca: el cliente lo daría por configurado.
+                return Err(format!("{archivo} está vacío").into());
+            }
+            let titulo = titulo.unwrap_or_else(|| {
+                std::path::Path::new(&archivo)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| archivo.clone())
+            });
+            documento::guardar(&pool, &titulo, &texto, Utc::now()).await?;
+
+            let trozos = documento::trozos(&pool).await?;
+            println!("«{titulo}» cargado; {} fragmentos en total", trozos.len());
+            if documento::modelo_visible(&pool).await?.is_none() {
+                println!(
+                    "AVISO: no hay modelo configurado, así que los documentos no se usan \
+                     todavía. Configúrelo con: chasqui modelo configurar --url … --nombre …"
+                );
+            }
+            Ok(())
+        }
+
+        Orden::Documento(OrdenDocumento::Listar) => {
+            for (id, titulo, tamano, activo) in documento::listar(&pool).await? {
+                let estado = if activo { "activo" } else { "inactivo" };
+                println!("#{id}  {titulo:<32} {tamano:>8} caracteres  {estado}");
+            }
+            Ok(())
+        }
+
+        Orden::Modelo(OrdenModelo::Configurar { url, nombre, sin_clave }) => {
+            if !url.starts_with("https://")
+                && !url.starts_with("http://127.0.0.1")
+                && !url.starts_with("http://localhost")
+            {
+                // Por ahí viajan las preguntas de los clientes del cliente y su
+                // clave. En claro se las lleva quien esté en medio.
+                return Err(format!(
+                    "{url} no es https. Solo se admite http:// contra la propia máquina."
+                )
+                .into());
+            }
+            let clave = if sin_clave { None } else { Some(leer_secreto("Pegue la clave del modelo y pulse Ctrl-D:")?) };
+            let boveda = chasqui_datos::Boveda::nueva(&config.frase);
+            documento::guardar_modelo(&pool, &boveda, &url, &nombre, clave.as_deref(), Utc::now())
+                .await?;
+            println!("modelo «{nombre}» configurado en {url}");
+            Ok(())
+        }
+
+        Orden::Modelo(OrdenModelo::Ver) => {
+            match documento::modelo_visible(&pool).await? {
+                None => println!("no hay modelo configurado: los documentos no se usan"),
+                Some((url, nombre, con_clave)) => {
+                    let clave = if con_clave { "con clave" } else { "sin clave" };
+                    println!("{nombre} en {url} ({clave})");
+                }
+            }
+            Ok(())
+        }
+
+        Orden::Purgar => {
+            let Some(valor) = ajuste::leer(&pool, ajuste::RETENCION_DIAS).await? else {
+                // Directiva 20: no hay plazo por defecto. El plazo lo decide el
+                // responsable del tratamiento, que es el cliente.
+                return Err("no hay plazo de retención configurado. Póngalo con: chasqui ajuste \
+                            poner retencion.dias 90"
+                    .into());
+            };
+            let dias = chasqui_dominio::retencion::plazo(&valor)?;
+            let corte = chasqui_dominio::retencion::corte(Utc::now(), dias);
+            let r = retencion::purgar(&pool, corte, Utc::now()).await?;
+            println!(
+                "borradas {} conversaciones y {} mensajes anteriores a {}",
+                r.conversaciones,
+                r.mensajes,
+                corte.to_rfc3339()
+            );
+            Ok(())
+        }
+
+        Orden::Olvidar { contacto } => {
+            let r = retencion::olvidar(&pool, &contacto, Utc::now()).await?;
+            println!(
+                "borradas {} conversaciones y {} mensajes de {contacto}; queda la constancia",
+                r.conversaciones, r.mensajes
+            );
+            Ok(())
+        }
+
         Orden::Escalados => {
             let pendientes = escalado::pendientes(&pool).await?;
             if pendientes.is_empty() {
@@ -377,6 +519,33 @@ fn comprobar_clave(clave: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Borra lo vencido, una vez al día.
+///
+/// Si no hay plazo configurado no hace nada y no se queja cada 24 h: ya se avisó
+/// al arrancar, y un aviso repetido es un aviso que se aprende a ignorar.
+async fn purga_diaria(pool: sqlx::SqlitePool) {
+    let mut reloj = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+    loop {
+        reloj.tick().await;
+
+        let Ok(Some(valor)) = ajuste::leer(&pool, ajuste::RETENCION_DIAS).await else { continue };
+        let Ok(dias) = chasqui_dominio::retencion::plazo(&valor) else {
+            eprintln!("chasqui: el plazo de retención «{valor}» no sirve; no se borró nada");
+            continue;
+        };
+
+        let ahora = Utc::now();
+        match retencion::purgar(&pool, chasqui_dominio::retencion::corte(ahora, dias), ahora).await {
+            Ok(r) if r.nada() => {}
+            Ok(r) => println!(
+                "chasqui: retención — borradas {} conversaciones y {} mensajes",
+                r.conversaciones, r.mensajes
+            ),
+            Err(e) => eprintln!("chasqui: falló la purga por retención: {e}"),
+        }
+    }
+}
+
 async fn servir(config: Config, pool: sqlx::SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
     // Antes de escuchar, decir en qué estado está lo que hace falta para
     // atender. Arrancar callado con el aviso de privacidad sin configurar es
@@ -388,12 +557,33 @@ async fn servir(config: Config, pool: sqlx::SqlitePool) -> Result<(), Box<dyn st
              Configúrelo con: chasqui ajuste poner guion.aviso_privacidad \"…\""
         ),
     }
+    // El plazo de retención, con el mismo criterio que el aviso: si falta, se
+    // dice. Callarlo dejaría al cliente creyendo que cumple lo que la propuesta
+    // le prometió —«borrado automático al vencer»— mientras se guarda todo para
+    // siempre.
+    match ajuste::leer(&pool, ajuste::RETENCION_DIAS).await? {
+        None => eprintln!(
+            "chasqui: AVISO — no hay plazo de retención configurado, así que las conversaciones \
+             se guardan indefinidamente. Póngalo con: chasqui ajuste poner retencion.dias 90"
+        ),
+        Some(valor) => match chasqui_dominio::retencion::plazo(&valor) {
+            Ok(dias) => println!("retención: {dias} días, purga automática cada 24 h"),
+            Err(e) => eprintln!("chasqui: AVISO — el plazo de retención no sirve y NO se borrará nada: {e}"),
+        },
+    }
+
     if cuenta::listar(&pool).await?.is_empty() {
         eprintln!(
             "chasqui: AVISO — no hay ninguna cuenta dada de alta. Los webhooks que lleguen se \
              ignorarán. Dela de alta con: chasqui cuenta añadir --canal whatsapp --id <id>"
         );
     }
+
+    // La purga diaria. Va dentro del proceso y no en un cron porque el producto
+    // se instala en el servidor de un cliente que no administra crones — y una
+    // promesa de borrado que depende de que alguien configure otra cosa es una
+    // promesa que no se cumple.
+    tokio::spawn(purga_diaria(pool.clone()));
 
     let servicio = Servicio::nuevo(&config, pool);
     let direccion = std::net::SocketAddr::new(config.escucha, config.puerto);

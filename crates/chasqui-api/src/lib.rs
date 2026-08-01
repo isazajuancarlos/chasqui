@@ -16,6 +16,7 @@ pub mod canales;
 pub mod config;
 pub mod consultas;
 pub mod firma;
+pub mod modelo;
 pub mod panel;
 pub mod servicio;
 pub mod sesion;
@@ -82,13 +83,19 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/conversaciones/{id}", get(panel::historial))
         .route("/conversaciones/{id}/mensaje", post(panel::responder))
         .route("/conversaciones/{id}/devolver-al-bot", post(panel::devolver_al_bot))
+        // El derecho de supresión, y la prueba de haberlo atendido.
+        .route("/conversaciones/{id}/olvidar", post(panel::olvidar_contacto))
+        .route("/supresiones", get(panel::supresiones))
         // Configuración.
         .route("/ajustes", get(panel::ajustes).put(panel::poner_ajuste))
         .route("/conocimiento", get(panel::preguntas).post(panel::crear_pregunta))
         .route("/conocimiento/{id}", patch(panel::activar_pregunta))
         .route("/consultas", get(panel::consultas))
         .route("/consultas/{id}", patch(panel::activar_consulta))
-        .route("/cuentas", get(panel::cuentas));
+        .route("/cuentas", get(panel::cuentas))
+        .route("/documentos", get(panel::documentos))
+        .route("/documentos/{id}", patch(panel::activar_documento))
+        .route("/modelo", get(panel::modelo));
 
     Router::new()
         // Las dos rutas que llama Meta, con el canal en la ruta. Un webhook por

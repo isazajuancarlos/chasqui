@@ -16,9 +16,11 @@ pub mod ajuste;
 pub mod conocimiento;
 pub mod consulta;
 pub mod conversacion;
+pub mod documento;
 pub mod cuenta;
 pub mod escalado;
 pub mod mensaje;
+pub mod retencion;
 pub mod secreto;
 pub mod usuario;
 

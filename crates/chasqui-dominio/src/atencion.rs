@@ -29,6 +29,7 @@
 
 use crate::conocimiento::{Entrada, buscar};
 use crate::consulta::{Consulta, Extraccion};
+use crate::documentos::{self, Trozo};
 use crate::conversacion::Estado;
 use crate::guion::Guion;
 use crate::mensaje::Clase;
@@ -71,6 +72,12 @@ pub enum Accion {
     Esperar { consulta_id: i64 },
     /// Ya no se espera ningún dato.
     OlvidarEspera,
+    /// Pedirle al modelo del cliente que redacte la respuesta con SUS documentos.
+    ///
+    /// Las instrucciones viajan aquí y no las pone la capa que habla por la red:
+    /// **son la regla** —qué puede decir el bot del cliente y qué no—, y cambiarlas
+    /// es cambiar el producto, no la infraestructura.
+    PreguntarAlModelo { instrucciones: String, peticion: String },
 }
 
 /// Todo lo que hace falta para decidir, ya reunido por quien sí toca la base.
@@ -82,6 +89,12 @@ pub struct Contexto<'a> {
     pub guion: &'a Guion,
     pub conocimiento: &'a [Entrada],
     pub consultas: &'a [Consulta],
+    /// Los documentos del cliente, ya troceados.
+    ///
+    /// **Viene vacío si no hay modelo configurado**: sin modelo no hay quien
+    /// redacte, y los fragmentos no se le pueden enseñar a nadie. Que lo decida
+    /// quien sabe si el modelo existe evita una bandera más aquí.
+    pub documentos: &'a [Trozo],
     /// La consulta cuyo dato se está esperando, si se preguntó por él.
     pub esperando: Option<i64>,
 }
@@ -168,17 +181,29 @@ pub fn atender(ctx: &Contexto<'_>) -> Vec<Accion> {
         return con_consulta(ctx, texto, consulta, acciones);
     }
 
-    match entrada {
-        Some(c) => acciones.push(Accion::Enviar(c.entrada.respuesta.clone())),
-        // 7. Y lo que no se puede saber va a una persona. Aquí NO hay «responde
-        //    lo más parecido»: ese es el atajo que convierte al bot en un oráculo
-        //    que se equivoca con seguridad (directiva 23).
-        None => {
-            acciones.push(Accion::Enviar(ctx.guion.sin_respuesta.clone()));
-            acciones.push(Accion::Escalar(Motivo::NoSabe(texto.to_string())));
-        }
+    if let Some(c) = entrada {
+        acciones.push(Accion::Enviar(c.entrada.respuesta.clone()));
+        return acciones;
     }
 
+    // 7. Lo que no está configurado palabra por palabra puede estar en los
+    //    documentos del cliente. Va DESPUÉS de lo exacto y no antes: una
+    //    respuesta que el cliente escribió es mejor que una redactada, es
+    //    gratis, y es la misma siempre.
+    let fragmentos = documentos::recuperar(texto, ctx.documentos, documentos::FRAGMENTOS);
+    if !fragmentos.is_empty() {
+        acciones.push(Accion::PreguntarAlModelo {
+            instrucciones: documentos::instrucciones(),
+            peticion: documentos::peticion(texto, &fragmentos),
+        });
+        return acciones;
+    }
+
+    // 8. Y lo que no se puede saber va a una persona. Aquí NO hay «responde lo
+    //    más parecido»: ese es el atajo que convierte al bot en un oráculo que se
+    //    equivoca con seguridad (directiva 23).
+    acciones.push(Accion::Enviar(ctx.guion.sin_respuesta.clone()));
+    acciones.push(Accion::Escalar(Motivo::NoSabe(texto.to_string())));
     acciones
 }
 
@@ -258,6 +283,7 @@ mod pruebas {
             guion,
             conocimiento: base,
             consultas: &[],
+            documentos: &[],
             esperando: None,
         }
     }
@@ -402,6 +428,7 @@ mod pruebas {
             guion,
             conocimiento: base,
             consultas,
+            documentos: &[],
             esperando,
         }
     }
@@ -541,6 +568,98 @@ mod pruebas {
             atender(&ctx_con(&clase, &g, &b, &[], Some(7))),
             vec![Accion::Enviar("Desde $50.000.".into())]
         );
+    }
+
+    // --- Documentos del cliente (la promesa «con sus documentos») ---
+
+    fn documentos() -> Vec<crate::documentos::Trozo> {
+        crate::documentos::trocear(
+            "politicas.md",
+            "Devoluciones\n\nSe aceptan devoluciones dentro de los 30 días siguientes a la \
+             compra, presentando la factura.",
+            1200,
+        )
+    }
+
+    fn ctx_docs<'a>(
+        clase: &'a Clase,
+        guion: &'a Guion,
+        base: &'a [Entrada],
+        docs: &'a [crate::documentos::Trozo],
+    ) -> Contexto<'a> {
+        Contexto {
+            clase,
+            estado: Estado::Bot,
+            debe_avisar: false,
+            guion,
+            conocimiento: base,
+            consultas: &[],
+            documentos: docs,
+            esperando: None,
+        }
+    }
+
+    #[test]
+    fn lo_que_no_esta_configurado_se_busca_en_los_documentos() {
+        let (g, d) = (guion(), documentos());
+        let clase = Clase::Texto("¿hacen devoluciones?".into());
+        let acciones = atender(&ctx_docs(&clase, &g, &[], &d));
+
+        assert_eq!(acciones.len(), 1);
+        let Accion::PreguntarAlModelo { instrucciones, peticion } = &acciones[0] else {
+            panic!("no se preguntó al modelo: {acciones:?}");
+        };
+        assert!(peticion.contains("¿hacen devoluciones?"));
+        assert!(peticion.contains("30 días"), "no se le pasó el fragmento bueno");
+        assert!(instrucciones.contains(crate::documentos::NO_ESTA));
+    }
+
+    #[test]
+    fn una_respuesta_escrita_por_el_cliente_gana_al_modelo() {
+        // Va después y no antes a propósito: lo que el cliente escribió es mejor
+        // que lo redactado, es gratis y es igual siempre.
+        let (g, b, d) = (guion(), base(), documentos());
+        let clase = Clase::Texto("cuanto vale".into());
+        assert_eq!(
+            atender(&ctx_docs(&clase, &g, &b, &d)),
+            vec![Accion::Enviar("Desde $50.000.".into())]
+        );
+    }
+
+    #[test]
+    fn si_no_hay_nada_en_los_documentos_va_a_una_persona() {
+        // Y no se le pregunta al modelo: sería pagar una llamada para que
+        // conteste que no sabe.
+        let (g, d) = (guion(), documentos());
+        let clase = Clase::Texto("¿tienen parqueadero?".into());
+        let acciones = atender(&ctx_docs(&clase, &g, &[], &d));
+        assert!(!acciones.iter().any(|a| matches!(a, Accion::PreguntarAlModelo { .. })));
+        assert!(acciones.iter().any(|a| matches!(a, Accion::Escalar(_))));
+    }
+
+    #[test]
+    fn sin_documentos_todo_sigue_como_antes() {
+        // Un cliente que no carga nada —o que no tiene modelo— no cambia de
+        // comportamiento: lo que no sabe, a una persona.
+        let g = guion();
+        let clase = Clase::Texto("¿hacen devoluciones?".into());
+        let acciones = atender(&ctx_docs(&clase, &g, &[], &[]));
+        assert_eq!(
+            acciones,
+            vec![
+                Accion::Enviar("NO SÉ".into()),
+                Accion::Escalar(Motivo::NoSabe("¿hacen devoluciones?".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn con_una_persona_atendiendo_no_se_le_pregunta_al_modelo() {
+        let (g, d) = (guion(), documentos());
+        let clase = Clase::Texto("¿hacen devoluciones?".into());
+        let mut ctx = ctx_docs(&clase, &g, &[], &d);
+        ctx.estado = Estado::ConHumano;
+        assert!(atender(&ctx).is_empty());
     }
 
     #[test]

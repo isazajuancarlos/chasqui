@@ -20,6 +20,12 @@ pub const SIN_RESPUESTA: &str = "guion.sin_respuesta";
 pub const ESCALANDO: &str = "guion.escalando";
 pub const PALABRAS_ESCALADO: &str = "guion.palabras_escalado";
 
+/// Cuántos días se guardan las conversaciones. **Sin sembrar a propósito**: el
+/// plazo lo decide el cliente, que es el responsable del tratamiento. Sin él no
+/// se borra nada y el servidor lo dice al arrancar — ver
+/// `chasqui_dominio::retencion`.
+pub const RETENCION_DIAS: &str = "retencion.dias";
+
 /// Lee un ajuste. `None` si no está.
 pub async fn leer(pool: &SqlitePool, clave: &str) -> Resultado<Option<String>> {
     let valor: Option<String> = sqlx::query_scalar("SELECT valor FROM ajuste WHERE clave = ?1")

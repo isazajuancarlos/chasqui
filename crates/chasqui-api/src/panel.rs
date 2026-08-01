@@ -20,7 +20,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, escalado, mensaje as bd_mensaje, usuario};
+use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado, mensaje as bd_mensaje, retencion, usuario};
 use chasqui_dominio::conversacion::Estado;
 use chasqui_dominio::{Canal, MensajeSaliente};
 
@@ -339,6 +339,75 @@ pub async fn devolver_al_bot(
     }
 }
 
+/// `POST /api/conversaciones/{id}/olvidar`
+///
+/// El derecho de supresión, ejercido desde el panel: alguien escribe pidiendo
+/// que le borren y quien atiende lo hace en el acto, sin abrir una terminal.
+///
+/// Borra **todo el historial de ese contacto**, no solo esta conversación: quien
+/// pide que le olviden no está pidiendo que le olviden un rato.
+pub async fn olvidar_contacto(
+    Agente(quien): Agente,
+    State(servicio): State<Servicio>,
+    Path(id): Path<i64>,
+) -> Response {
+    let pool = &servicio.pool;
+
+    let conv = match conversacion::por_id(pool, id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(json_error("no existe esa conversación")))
+                .into_response();
+        }
+        Err(e) => return fallo("leer la conversación", e),
+    };
+
+    match retencion::olvidar(pool, &conv.contacto, Utc::now()).await {
+        Ok(resumen) => {
+            // Al log, porque es una operación irreversible hecha por una persona
+            // concreta. El contacto NO va: ya está en la constancia de la base.
+            eprintln!(
+                "chasqui: {} ejerció una supresión ({} conversaciones, {} mensajes)",
+                quien.correo, resumen.conversaciones, resumen.mensajes
+            );
+            Json(resumen).into_response()
+        }
+        Err(e) => fallo("la supresión", e),
+    }
+}
+
+#[derive(Serialize)]
+pub struct ConstanciaJson {
+    pub contacto: String,
+    pub motivo: String,
+    pub conversaciones: i64,
+    pub mensajes: i64,
+    pub ejecutada_en: String,
+}
+
+/// `GET /api/supresiones` — la prueba de que se borró.
+///
+/// Habeas data no se cumple borrando: se cumple pudiendo demostrarlo el día que
+/// alguien reclama. Esta es la pantalla que se le enseña.
+pub async fn supresiones(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
+    match retencion::constancias(&servicio.pool, 200).await {
+        Ok(lista) => Json(
+            lista
+                .into_iter()
+                .map(|(contacto, motivo, conversaciones, mensajes, ejecutada_en)| ConstanciaJson {
+                    contacto,
+                    motivo,
+                    conversaciones,
+                    mensajes,
+                    ejecutada_en,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => fallo("listar las constancias", e),
+    }
+}
+
 // --- Configuración ---
 
 /// `GET /api/ajustes`
@@ -366,14 +435,28 @@ pub async fn poner_ajuste(
     // Solo las claves conocidas. Sin esto, el panel sería un editor libre de la
     // tabla y cualquier error de tecleo crearía un ajuste que nadie lee — el
     // cliente creería haber configurado algo que no existe.
-    const CONOCIDAS: &[&str] =
-        &[ajuste::AVISO, ajuste::SIN_RESPUESTA, ajuste::ESCALANDO, ajuste::PALABRAS_ESCALADO];
+    const CONOCIDAS: &[&str] = &[
+        ajuste::AVISO,
+        ajuste::SIN_RESPUESTA,
+        ajuste::ESCALANDO,
+        ajuste::PALABRAS_ESCALADO,
+        ajuste::RETENCION_DIAS,
+    ];
     if !CONOCIDAS.contains(&cuerpo.clave.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
             Json(json_error("ese ajuste no existe; revise el nombre")),
         )
             .into_response();
+    }
+
+    // El plazo de retención se valida ANTES de guardarlo. Guardar «3 meses» y
+    // descubrirlo en la purga de esa noche es descubrirlo cuando ya no se borró
+    // nada: el cliente creería que cumple, que es peor que no tener el ajuste.
+    if cuerpo.clave == ajuste::RETENCION_DIAS
+        && let Err(e) = chasqui_dominio::retencion::plazo(&cuerpo.valor)
+    {
+        return (StatusCode::BAD_REQUEST, Json(json_error(&e.to_string()))).into_response();
     }
 
     match ajuste::poner(&servicio.pool, &cuerpo.clave, &cuerpo.valor).await {
@@ -511,6 +594,66 @@ pub async fn activar_consulta(
     match bd_consulta::activar(&servicio.pool, id, cuerpo.activa).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => fallo("activar la consulta", e),
+    }
+}
+
+#[derive(Serialize)]
+pub struct DocumentoJson {
+    pub id: i64,
+    pub titulo: String,
+    pub caracteres: i64,
+    pub activo: bool,
+}
+
+/// `GET /api/documentos` — qué hay cargado. **Nunca el contenido**: son las
+/// políticas y los precios del cliente, y el panel solo necesita saber qué hay.
+pub async fn documentos(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
+    match documento::listar(&servicio.pool).await {
+        Ok(lista) => Json(
+            lista
+                .into_iter()
+                .map(|(id, titulo, caracteres, activo)| DocumentoJson {
+                    id,
+                    titulo,
+                    caracteres,
+                    activo,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => fallo("listar documentos", e),
+    }
+}
+
+/// `PATCH /api/documentos/{id}`
+pub async fn activar_documento(
+    Agente(_): Agente,
+    State(servicio): State<Servicio>,
+    Path(id): Path<i64>,
+    Json(cuerpo): Json<ActivaJson>,
+) -> Response {
+    match documento::activar(&servicio.pool, id, cuerpo.activa).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => fallo("activar el documento", e),
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModeloJson {
+    pub url: String,
+    pub nombre: String,
+    /// Si hay clave configurada. **Nunca cuál.**
+    pub con_clave: bool,
+}
+
+/// `GET /api/modelo` — qué modelo redacta, sin la clave.
+pub async fn modelo(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
+    match documento::modelo_visible(&servicio.pool).await {
+        Ok(None) => Json(Option::<ModeloJson>::None).into_response(),
+        Ok(Some((url, nombre, con_clave))) => {
+            Json(Some(ModeloJson { url, nombre, con_clave })).into_response()
+        }
+        Err(e) => fallo("leer el modelo", e),
     }
 }
 

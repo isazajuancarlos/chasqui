@@ -20,7 +20,15 @@ import { Api, Mensaje } from './api';
     <div class="barra">
       <h2>Conversación #{{ id() }}</h2>
       <button mat-button (click)="devolver()">Devolver al bot</button>
+      <button mat-button class="peligro" (click)="olvidar()">
+        {{ confirmando() ? '¿Seguro? Pulse otra vez' : 'Olvidar a esta persona' }}
+      </button>
     </div>
+    @if (olvidado()) {
+      <p class="aviso">
+        Borrado. {{ olvidado() }} — queda la constancia, sin nada del contenido.
+      </p>
+    }
 
     <div class="hilo">
       @for (m of mensajes(); track $index) {
@@ -54,6 +62,8 @@ import { Api, Mensaje } from './api';
     .ancho { width: 100%; }
     .vacio { color: #666; }
     .error { color: #b3261e; }
+    .peligro { color: #b3261e; }
+    .aviso { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: .75rem 1rem; }
   `],
 })
 export class ConversacionVista implements OnInit, OnDestroy {
@@ -64,6 +74,10 @@ export class ConversacionVista implements OnInit, OnDestroy {
   texto = '';
   enviando = signal(false);
   error = signal('');
+  // Dos pulsaciones y no un `confirm()`: el borrado es irreversible y el
+  // diálogo del navegador se acepta sin leerlo.
+  confirmando = signal(false);
+  olvidado = signal('');
   private reloj?: ReturnType<typeof setInterval>;
 
   ngOnInit() {
@@ -94,5 +108,18 @@ export class ConversacionVista implements OnInit, OnDestroy {
 
   devolver() {
     this.api.devolverAlBot(Number(this.id())).subscribe();
+  }
+
+  olvidar() {
+    if (!this.confirmando()) {
+      this.confirmando.set(true);
+      setTimeout(() => this.confirmando.set(false), 5000);
+      return;
+    }
+    this.confirmando.set(false);
+    this.api.olvidarContacto(Number(this.id())).subscribe((r) => {
+      this.olvidado.set(`${r.conversaciones} conversaciones y ${r.mensajes} mensajes`);
+      this.mensajes.set([]);
+    });
   }
 }
