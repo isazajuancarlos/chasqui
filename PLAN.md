@@ -199,4 +199,4 @@ Nada implementado. Este documento es el plan, no un informe de avance.
 | Flujos y toma de pedidos | pendiente |
 | Escalado a una persona | pendiente |
 | Panel de configuración | pendiente |
-| Aviso de privacidad y retención | pendiente |
+| Aviso de privacidad y retención | plantillas listas en `legal/`; falta el mecanismo en código |

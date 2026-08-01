@@ -2,7 +2,7 @@
 # Lo que puede salir mal
 
 Sacado de leer las cinco peticiones de `docs/peticiones-workana.txt` el
-2026-08-01. **Todo esto se decide antes de cotizar**, no cuando ya aparece.
+2026-08-01, más lo que apareció al redactar las plantillas de `legal/`. **Todo esto se decide antes de cotizar**, no cuando ya aparece.
 
 Cada punto lleva la señal que lo delata en el texto del cliente, para poder
 reconocerlo en la sexta petición sin releer esto entero.
@@ -156,10 +156,11 @@ el responsable del tratamiento es el cliente (Ley 1581 de 2012). Necesita aviso
 de privacidad, política publicada y saber dónde viven las conversaciones y
 cuánto tiempo.
 
-**Qué hacer:** llevarlo resuelto, no mencionado. **Antes de mandar la primera
-propuesta hay que tener la plantilla de aviso y de política de tratamiento
-lista.** Es lo que sostiene la diferencia; llegar sin ella la convierte en una
-frase bonita — y si el cliente la pide en la reunión, hay que poder enseñarla.
+**Qué hacer:** llevarlo resuelto, no mencionado. **Ya está**: las plantillas
+viven en [`legal/`](legal/) —aviso de privacidad en dos versiones, una que cabe en
+un mensaje de WhatsApp, y política de tratamiento con los seis numerales que
+exige el artículo 2.2.2.25.3.1 del Decreto 1074 de 2015—. Si el cliente la pide
+en la reunión, se le enseña.
 
 ---
 
@@ -176,11 +177,32 @@ después reclama, pide cosas fuera de alcance y deja mala reseña si no se las d
 
 ---
 
+## 12. La Ley 2300 se lee al revés con facilidad, y eso mata el producto
+
+**La señal:** no está en las peticiones. Aparece en cuanto se investiga el
+cumplimiento y se lee «horarios: lunes a viernes de 7:00 a 19:00».
+
+**Por qué importa:** el primer impulso es prometerle al cliente un asistente que
+respeta esos horarios. Sería regalar justo lo que se vende: **la ley limita la
+gestión de cobro y los mensajes comerciales —lo que INICIA el negocio—, no
+responder a quien escribió primero.** El asistente puede contestar un domingo a
+medianoche porque el consumidor eligió el canal y la hora. Lo que no puede es
+mandarle una promoción a esa hora.
+
+**Qué hacer:** en la propuesta va como **ventaja**: usted atiende cuando su
+cliente pregunta, y las campañas que usted inicia salen dentro del horario legal
+porque el sistema las agenda solo. Escrito al revés, la ley se convierte en un
+defecto y el cliente compra otro producto. Y si el cliente es una entidad
+vigilada por la Superintendencia Financiera, además le aplican sus reglas propias
+de cobranza.
+
+---
+
 ## Resumen: lo que hay que tener resuelto antes de mandar una propuesta
 
 - [ ] Cinco preguntas reales de sus clientes, por escrito
 - [ ] Número de conversaciones al día
 - [ ] Si tiene cuenta de WhatsApp Business verificada, o hay que crearla
 - [ ] Quién atiende lo que el asistente traspase
-- [ ] Plantilla de aviso de privacidad y política de tratamiento **lista**
+- [x] Plantilla de aviso de privacidad y política de tratamiento — en [`legal/`](legal/)
 - [ ] TRM del día, con su fecha, en el documento

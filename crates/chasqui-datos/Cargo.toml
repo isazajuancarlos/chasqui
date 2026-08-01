@@ -1,0 +1,20 @@
+[package]
+name = "chasqui-datos"
+description = "La base de Chasqui: SQLite, credenciales cifradas y las consultas."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chasqui-dominio = { path = "../chasqui-dominio" }
+guaca = { workspace = true }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

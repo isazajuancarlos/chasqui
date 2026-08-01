@@ -54,9 +54,10 @@ Usted cambia respuestas, precios, horarios y flujos **sin depender de nosotros y
 sin tocar código**.
 
 **7. Cumplimiento de habeas data (Ley 1581 de 2012)**
-Aviso de privacidad en el primer mensaje de cada conversación, política de
-tratamiento redactada para su caso, y control de cuánto tiempo se guardan las
-conversaciones. Las conversaciones **quedan en su servidor**: no pasan por
+Aviso de privacidad en el primer mensaje de cada conversación —con registro de
+que se envió, que es lo que se pide el día que hay una queja—, política de
+tratamiento redactada para su caso, y un plazo decidido para cada dato con
+borrado automático al vencer. Las conversaciones **quedan en su servidor**: no pasan por
 nosotros ni por un tercero.
 
 Esto no es un añadido. Un asistente que atiende clientes trata datos personales y
@@ -88,6 +89,16 @@ verificada por Meta y con acceso a la API. Esa verificación la hace Meta con su
 documentos y **no depende de ninguno de los dos** — le acompañamos en el trámite,
 pero el reloj de la entrega empieza cuando esté lista. Si ya la tiene, empezamos
 el mismo día.
+
+### Sobre los horarios de la Ley 2300 de 2023
+
+La «ley dejen de fregar» limita las comunicaciones **que usted inicia** —cobros y
+publicidad— a lunes a viernes de 7:00 a 19:00 y sábados de 8:00 a 15:00, sin
+domingos ni festivos.
+
+**Responder a quien le escribe no cae ahí**, así que su asistente atiende a
+cualquier hora. Y las campañas que sí inicie usted, el sistema las agenda dentro
+del horario legal sin que tenga que acordarse.
 
 ### Acompañamiento mensual (opcional)
 
@@ -230,9 +241,11 @@ No son un número puesto a ojo. El razonamiento:
 - Actualizar la TRM y su fecha.
 - Ajustar el ejemplo de coste operativo al volumen que diga el cliente: el
   argumento de «casi gratis» solo convence con SUS números.
-- Tener el aviso de privacidad y la política de tratamiento como plantilla lista.
-  Es lo que sostiene el diferenciador, y llegar sin ella lo convierte en una
-  frase bonita.
+- El aviso de privacidad y la política de tratamiento **ya están** en
+  [`legal/`](legal/). Solo hay que rellenar los huecos con los datos del cliente
+  — y comprobar si supera las 100.000 UVT, porque por debajo de eso **no tiene
+  que registrar nada** en el RNBD y conviene decírselo: es la clase de trámite
+  que otro proveedor le cobraría sin que haga falta.
 
 ## Fuentes de los datos
 

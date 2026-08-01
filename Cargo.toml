@@ -1,0 +1,52 @@
+[workspace]
+members = [
+    "crates/chasqui-dominio",
+    "crates/chasqui-datos",
+    "crates/chasqui-api",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
+license = "LicenseRef-Propietario-IsazaArenas"
+repository = "https://github.com/isazajuancarlos/chasqui"
+# Producto de VENTA (directiva 10): NUNCA se publica en crates.io. Explícito para
+# que un `cargo publish` accidental falle en vez de subir el producto.
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "migrate",
+    "chrono",
+] }
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+# Salida HTTP hacia la API Graph de Meta. Sin OpenSSL: rustls, para que el
+# binario que se instala en casa del cliente no dependa de la libssl del sistema.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+# Firma del webhook de Meta (X-Hub-Signature-256) y comparación en tiempo constante.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+# Cifrado en reposo de las credenciales del cliente (token de Meta, clave del
+# modelo). Fijado por commit inmutable, no por tag: un tag es mutable y moverlo a
+# un commit malicioso nos lo traería al construir (lección del ataque a AUR).
+# Es el MISMO rev que usa medico: una sola versión auditada para los dos productos.
+guaca = { git = "https://github.com/isazajuancarlos/guaca", rev = "2ffe1346b706f5fbb8f5eaaea1c37375682c807d" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
