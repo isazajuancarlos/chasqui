@@ -97,6 +97,35 @@ pub async fn por_id_externo(
     }))
 }
 
+/// Una cuenta por su id numérico, con el token descifrado.
+///
+/// La necesita el panel para que una PERSONA pueda responder: el mensaje que
+/// escribe un agente sale por el mismo número y con las mismas credenciales que
+/// los del bot.
+pub async fn por_id(pool: &SqlitePool, boveda: &Boveda, id: i64) -> Resultado<Option<Cuenta>> {
+    let fila = sqlx::query(
+        "SELECT canal, id_externo, nombre, token_cifrado FROM cuenta_canal WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(fila) = fila else { return Ok(None) };
+
+    let ranura: String = fila.try_get("canal")?;
+    let canal = Canal::desde_ranura(&ranura).ok_or(Error::ValorInvalido {
+        tabla: "cuenta_canal",
+        id,
+        columna: "canal",
+        valor: ranura,
+    })?;
+    let id_externo: String = fila.try_get("id_externo")?;
+    let cifrado: Vec<u8> = fila.try_get("token_cifrado")?;
+    let token = boveda.descifrar(&cifrado, &format!("{canal}/{id_externo}"))?;
+
+    Ok(Some(Cuenta { id, canal, id_externo, nombre: fila.try_get("nombre")?, token }))
+}
+
 /// Las cuentas dadas de alta, sin tokens. Para el panel y para el arranque.
 pub async fn listar(pool: &SqlitePool) -> Resultado<Vec<(i64, Canal, String, String, bool)>> {
     let filas = sqlx::query("SELECT id, canal, id_externo, nombre, activa FROM cuenta_canal ORDER BY id")

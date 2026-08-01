@@ -30,6 +30,11 @@ pub struct Servicio {
     /// Cuántas horas dura una conversación. Sale de Meta; es configurable
     /// porque Meta la ha cambiado antes y cambiarla no debería exigir compilar.
     pub horas_ventana: i64,
+    /// Con qué se firman las sesiones del panel. Derivado de la frase; ver
+    /// [`crate::sesion::secreto_de`].
+    secreto_sesion: Arc<Vec<u8>>,
+    /// Si la cookie de sesión va sin `Secure`. Solo para probar en local.
+    pub sin_tls: bool,
 }
 
 /// El cliente HTTP para las consultas al sistema del cliente.
@@ -79,7 +84,14 @@ impl Servicio {
             token_verificacion: Arc::new(config.token_verificacion.clone()),
             canales: Arc::new(canales),
             horas_ventana: VENTANA_HORAS_META,
+            secreto_sesion: Arc::new(crate::sesion::secreto_de(&config.frase)),
+            sin_tls: config.sin_tls,
         }
+    }
+
+    /// El secreto con el que se firman las sesiones del panel.
+    pub fn secreto_sesion(&self) -> &[u8] {
+        &self.secreto_sesion
     }
 
     /// El adaptador de un canal. Los tres están siempre montados: que una cuenta
@@ -121,6 +133,7 @@ mod pruebas {
             secreto_app: "secreto".into(),
             token_verificacion: "token".into(),
             graph: "https://graph.example/v21.0".into(),
+            sin_tls: true,
         };
         // Un pool perezoso: no hace falta abrir la base para comprobar el montaje.
         let pool = SqlitePool::connect_lazy("sqlite::memory:").unwrap();

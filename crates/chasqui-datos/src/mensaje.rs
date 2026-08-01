@@ -66,9 +66,12 @@ pub async fn registrar_saliente(
 
 /// Los textos de una conversación, en orden. Para el panel y para atender una
 /// solicitud de supresión sabiendo qué hay guardado.
-pub async fn de_conversacion(pool: &SqlitePool, id: i64) -> Resultado<Vec<(String, String)>> {
-    let filas: Vec<(String, String)> = sqlx::query_as(
-        "SELECT direccion, texto FROM mensaje WHERE conversacion_id = ?1 ORDER BY id",
+pub async fn de_conversacion(
+    pool: &SqlitePool,
+    id: i64,
+) -> Resultado<Vec<(String, String, String)>> {
+    let filas: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT direccion, texto, momento FROM mensaje WHERE conversacion_id = ?1 ORDER BY id",
     )
     .bind(id)
     .fetch_all(pool)
@@ -181,8 +184,10 @@ mod pruebas {
         registrar_saliente(&pool, c, None, "buenas", t0()).await.unwrap();
 
         let h = de_conversacion(&pool, c).await.unwrap();
+        let solo_texto: Vec<(String, String)> =
+            h.into_iter().map(|(d, t, _)| (d, t)).collect();
         assert_eq!(
-            h,
+            solo_texto,
             vec![
                 ("entrante".to_string(), "hola".to_string()),
                 ("saliente".to_string(), "buenas".to_string())

@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 
 use chasqui_api::config::Config;
 use chasqui_api::{router, servicio::Servicio};
-use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, escalado};
+use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, escalado, usuario};
 use chasqui_dominio::consulta::{Consulta, Metodo, TipoDato};
 use chasqui_dominio::Canal;
 
@@ -50,6 +50,28 @@ enum Orden {
     Consulta(OrdenConsulta),
     /// Quién está esperando a una persona.
     Escalados,
+    /// Las personas que entran al panel.
+    #[command(subcommand)]
+    Usuario(OrdenUsuario),
+}
+
+#[derive(Subcommand)]
+enum OrdenUsuario {
+    /// Da de alta a una persona. **La contraseña se lee de la entrada
+    /// estándar**, no de un argumento: los argumentos quedan en el historial del
+    /// shell y en `ps`.
+    Crear {
+        #[arg(long)]
+        correo: String,
+        #[arg(long, default_value = "")]
+        nombre: String,
+    },
+    /// Cambia la contraseña de alguien (también por la entrada estándar).
+    Clave {
+        #[arg(long)]
+        correo: String,
+    },
+    Listar,
 }
 
 #[derive(Subcommand)]
@@ -268,6 +290,39 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
 
+        Orden::Usuario(OrdenUsuario::Crear { correo, nombre }) => {
+            let clave = leer_secreto("Escriba la contraseña y pulse Ctrl-D:")?;
+            comprobar_clave(&clave)?;
+            usuario::crear(&pool, &correo, &nombre, &clave, Utc::now()).await?;
+            println!("{correo} puede entrar al panel");
+            Ok(())
+        }
+
+        Orden::Usuario(OrdenUsuario::Clave { correo }) => {
+            // Se busca por correo y se falla si no está, en vez de crearla: un
+            // «cambiar la clave» que da de alta a alguien por una errata es una
+            // cuenta nueva que nadie sabe que existe.
+            let quienes = usuario::listar(&pool).await?;
+            let quien = quienes
+                .iter()
+                .find(|(_, c, _, _)| c.eq_ignore_ascii_case(correo.trim()))
+                .ok_or_else(|| format!("no hay ninguna cuenta con el correo {correo}"))?;
+
+            let clave = leer_secreto("Escriba la contraseña nueva y pulse Ctrl-D:")?;
+            comprobar_clave(&clave)?;
+            usuario::cambiar_clave(&pool, quien.0, &clave).await?;
+            println!("contraseña cambiada");
+            Ok(())
+        }
+
+        Orden::Usuario(OrdenUsuario::Listar) => {
+            for (id, correo, nombre, activo) in usuario::listar(&pool).await? {
+                let estado = if activo { "activo" } else { "inactivo" };
+                println!("#{id}  {correo:<32} {nombre:<24} {estado}");
+            }
+            Ok(())
+        }
+
         Orden::Escalados => {
             let pendientes = escalado::pendientes(&pool).await?;
             if pendientes.is_empty() {
@@ -283,16 +338,43 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Lee el token de la entrada estándar.
 fn leer_token() -> Result<String, Box<dyn std::error::Error>> {
-    eprintln!("Pegue el token de Meta y pulse Ctrl-D:");
+    leer_secreto("Pegue el token de Meta y pulse Ctrl-D:")
+}
+
+/// Lee un secreto de la entrada estándar.
+///
+/// Nunca de un argumento: los argumentos quedan en el historial del shell y en
+/// la lista de procesos, donde los ve cualquiera con acceso a la máquina.
+fn leer_secreto(aviso: &str) -> Result<String, Box<dyn std::error::Error>> {
+    eprintln!("{aviso}");
     let mut buffer = String::new();
     std::io::stdin().read_to_string(&mut buffer)?;
-    let token = buffer.trim().to_string();
-    if token.is_empty() {
-        // Directiva 20: un token vacío se guardaría, se cifraría, y fallaría en
-        // el primer mensaje real con un error de Meta que no dice qué pasó.
-        return Err("no se leyó ningún token en la entrada estándar".into());
+    let secreto = buffer.trim().to_string();
+    if secreto.is_empty() {
+        // Directiva 20: un secreto vacío se guardaría y fallaría más tarde, con
+        // un error que no señala a esta línea.
+        return Err("no se leyó nada en la entrada estándar".into());
     }
-    Ok(token)
+    Ok(secreto)
+}
+
+/// El mínimo de una contraseña del panel.
+///
+/// Doce y no ocho, y sin exigir mayúsculas ni símbolos: las reglas de
+/// composición producen «Password1!» y el largo produce frases. Con el freno de
+/// `guaca::freno` delante, la longitud es lo que de verdad decide.
+const MINIMO_CLAVE: usize = 12;
+
+fn comprobar_clave(clave: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if clave.chars().count() < MINIMO_CLAVE {
+        return Err(format!(
+            "la contraseña tiene {} caracteres y hacen falta al menos {MINIMO_CLAVE}. Con esta \
+             contraseña se entra a las conversaciones de los clientes del negocio.",
+            clave.chars().count()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 async fn servir(config: Config, pool: sqlx::SqlitePool) -> Result<(), Box<dyn std::error::Error>> {

@@ -32,8 +32,14 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 clap = { version = "4", features = ["derive"] }
+# La interfaz viaja DENTRO del binario: un solo ejecutable en el servidor del
+# cliente, sin carpetas que copiar ni servidor de estáticos que configurar.
+rust-embed = { version = "8", features = ["mime-guess"] }
+guaca = { workspace = true }
 
 [dev-dependencies]
 # Para hablarle al servidor como le habla Meta: se levanta el binario de verdad
-# y se le manda una petición HTTP firmada (directiva 28).
-reqwest = { workspace = true }
+# y se le manda una petición HTTP firmada (directiva 28). `cookies` para hablarle
+# al panel como le habla un navegador: si la sesión no viaja en la cookie, las
+# pruebas del panel no prueban la sesión.
+reqwest = { workspace = true, features = ["cookies"] }

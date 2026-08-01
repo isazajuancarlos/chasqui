@@ -90,6 +90,13 @@ pub struct Config {
     /// La raíz de la API Graph. Configurable para fijar la versión y para poder
     /// probar el envío contra un servidor propio sin escribirle a nadie.
     pub graph: String,
+    /// `true` desactiva la marca `Secure` de la cookie de sesión.
+    ///
+    /// El defecto es seguro y **el camino permisivo hay que pedirlo**
+    /// (directiva 20). Sin `Secure`, la cookie del panel viaja en claro por
+    /// cualquier `http://`, y con ella se entra a las conversaciones del
+    /// cliente. Solo tiene sentido probando en local.
+    pub sin_tls: bool,
 }
 
 impl std::fmt::Debug for Config {
@@ -189,6 +196,8 @@ impl Config {
             secreto_app: requerido(fuente, "CHASQUI_SECRETO_APP")?,
             token_verificacion: requerido(fuente, "CHASQUI_TOKEN_VERIFICACION")?,
             graph: graph.trim_end_matches('/').to_string(),
+            sin_tls: opcional(fuente, "CHASQUI_SIN_TLS")
+                .is_some_and(|v| matches!(v.trim(), "1" | "true" | "si" | "sí")),
         })
     }
 }

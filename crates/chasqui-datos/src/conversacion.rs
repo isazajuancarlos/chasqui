@@ -176,6 +176,51 @@ pub async fn cambiar_estado(pool: &SqlitePool, id: i64, estado: Estado) -> Resul
     Ok(())
 }
 
+/// Una conversación con lo que el panel necesita para pintarla en una lista:
+/// por qué canal entró y cuántos mensajes lleva.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnLista {
+    pub conversacion: Conversacion,
+    pub canal: chasqui_dominio::Canal,
+    pub mensajes: i64,
+}
+
+/// Las conversaciones vivas, la que se movió hace menos primero.
+///
+/// Ese orden y no el de apertura: quien atiende mira lo que está pasando ahora,
+/// y una conversación de ayer con un mensaje nuevo es lo que está pasando ahora.
+pub async fn listar(pool: &SqlitePool, limite: i64) -> Resultado<Vec<EnLista>> {
+    // Las columnas van a mano y no por `COLUMNAS`: aquí llevan el prefijo de la
+    // tabla, y con la unión hace falta decir de cuál sale cada una.
+    let filas = sqlx::query(
+        "SELECT c.id, c.cuenta_id, c.contacto, c.estado, c.abierta_en, c.ultimo_en, c.aviso_en,
+                c.esperando_consulta, k.canal AS canal_ranura,
+                (SELECT COUNT(*) FROM mensaje m WHERE m.conversacion_id = c.id) AS cuantos
+         FROM conversacion c JOIN cuenta_canal k ON k.id = c.cuenta_id
+         WHERE c.cerrada_en IS NULL
+         ORDER BY c.ultimo_en DESC LIMIT ?1",
+    )
+    .bind(limite)
+    .fetch_all(pool)
+    .await?;
+
+    filas
+        .into_iter()
+        .map(|f| {
+            let id: i64 = f.try_get("id")?;
+            let ranura: String = f.try_get("canal_ranura")?;
+            let canal = chasqui_dominio::Canal::desde_ranura(&ranura).ok_or(Error::ValorInvalido {
+                tabla: "cuenta_canal",
+                id,
+                columna: "canal",
+                valor: ranura,
+            })?;
+            let mensajes: i64 = f.try_get("cuantos")?;
+            Ok(EnLista { conversacion: leer(f)?, canal, mensajes })
+        })
+        .collect()
+}
+
 /// Una conversación por id. Para el panel.
 pub async fn por_id(pool: &SqlitePool, id: i64) -> Resultado<Option<Conversacion>> {
     let fila = sqlx::query(&format!("SELECT {COLUMNAS} FROM conversacion WHERE id = ?1"))

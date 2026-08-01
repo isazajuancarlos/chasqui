@@ -20,6 +20,7 @@ pub mod cuenta;
 pub mod escalado;
 pub mod mensaje;
 pub mod secreto;
+pub mod usuario;
 
 use std::str::FromStr;
 
@@ -53,6 +54,13 @@ pub enum Error {
          antes de atender."
     )]
     AjusteAusente(String),
+
+    #[error(
+        "no se pudo derivar el hash de la contraseña. Es un fallo del sistema, no del dato: \
+         Argon2 solo falla aquí si no hay memoria o si el generador de azar del sistema no \
+         responde. NO se guarda nada."
+    )]
+    ClaveNoHasheable,
 
     #[error(
         "no se pudo descifrar el token de la cuenta {0}. La causa casi siempre es que \

@@ -29,8 +29,8 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 | Aviso de privacidad | **funciona**, y sin él el bot no atiende |
 | Credenciales del cliente cifradas en reposo | **funciona** (`guaca`, sobre Quipu) |
 | Leer los datos del cliente (su API) | **funciona** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
+| Panel para atender y configurar | **funciona** — Angular Material dentro del binario |
 | Flujos y toma de pedidos | pendiente |
-| Panel de configuración | pendiente; hoy se administra por la línea de órdenes |
 
 ## Cómo se instala y se pone a andar
 
@@ -58,11 +58,22 @@ chasqui conocimiento cargar preguntas.json
 #    credenciales: se cifran al guardarlas y luego se borra el archivo.
 chasqui consulta cargar consultas.json
 
-# 5. A servir. Detrás de nginx con TLS; Meta exige https.
+# 5. Quién entra al panel a atender. La contraseña, por la entrada estándar.
+chasqui usuario crear --correo ana@acme.com --nombre Ana
+
+# 6. A servir. Detrás de nginx con TLS; Meta exige https, y la cookie del panel
+#    va marcada `Secure` salvo que se pida lo contrario con CHASQUI_SIN_TLS=1.
 chasqui servir
 ```
 
-`chasqui escalados` enumera quién está esperando a una persona.
+El panel queda en la raíz (`https://…/`): la cola de quien espera, la
+conversación con su historial y un cuadro para **responder como persona**, y la
+configuración de los textos, las preguntas frecuentes y las consultas. Va
+**dentro del binario** — un solo ejecutable, sin carpetas que copiar ni fuentes
+que pedirle a un CDN, que es lo que hace cierta la frase de que las
+conversaciones no salen del servidor del cliente.
+
+`chasqui escalados` enumera lo mismo desde la línea de órdenes.
 
 Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
 `/webhook/messenger`.

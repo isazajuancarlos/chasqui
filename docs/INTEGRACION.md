@@ -147,6 +147,44 @@ Es decir: el panel no es una pantalla con acceso privilegiado a la base, es el
 primer consumidor de la API. Si se hace al revés, la integración exige después un
 segundo sistema.
 
+**Construida el 2026-08-01.** La API vive en `/api/*`, exige sesión —el
+extractor va en la firma de cada manejador, así que una ruta nueva sin sesión no
+compila— y el panel Angular no llama a nada que la aplicación del cliente no
+pueda llamar con las mismas credenciales. Lo que hay:
+
+| Ruta | Para qué |
+|---|---|
+| `POST/DELETE /api/sesion`, `GET /api/yo` | entrar, salir, saber quién es |
+| `GET /api/escalados`, `POST /api/escalados/{id}/atender` | la cola de quien espera |
+| `GET /api/conversaciones`, `GET /api/conversaciones/{id}` | lista e historial |
+| `POST /api/conversaciones/{id}/mensaje` | **que una persona responda** |
+| `POST /api/conversaciones/{id}/devolver-al-bot` | terminar la atención humana |
+| `GET/PUT /api/ajustes` | el aviso de privacidad y los textos |
+| `GET/POST /api/conocimiento`, `PATCH /api/conocimiento/{id}` | preguntas frecuentes |
+| `GET /api/consultas`, `PATCH /api/consultas/{id}` | las de la costura 2 |
+| `GET /api/cuentas` | los canales dados de alta, **sin tokens** |
+
+Las decisiones que se tomaron, con su motivo:
+
+- **La sesión se firma con una clave DERIVADA de `CHASQUI_FRASE`**, no con otra
+  variable de entorno. Quien tiene la frase ya puede descifrar los tokens de
+  Meta: pedir dos secretos para el mismo nivel de acceso es ceremonia que acaba
+  en dos secretos débiles. La etiqueta de dominio evita que la clave de sesión
+  sea *igual* a la frase.
+- **Cookie `HttpOnly`, `SameSite=Strict` y `Secure`.** Quitar `Secure` hay que
+  pedirlo (`CHASQUI_SIN_TLS=1`): el defecto es el seguro.
+- **Freno al ensayo de contraseñas** con `guaca::freno`, por par (correo,
+  origen) y leyendo `X-Real-IP` y nunca `X-Forwarded-For`, que lo escribe quien
+  llama. Un 429 con `Retry-After`.
+- **«No existe» y «contraseña mal» dan la misma respuesta.** Distinguirlas
+  convierte la pantalla de entrada en un comprobador de quién tiene cuenta.
+- **Los tokens no salen por la API, nunca.** De las consultas se dice si tienen
+  credenciales configuradas —«no responde» y «no tiene credenciales» son dos
+  problemas distintos— pero no cuáles.
+- **El alta de una cuenta de Meta NO está en el panel**, a propósito: el token
+  permanente del cliente no tiene por qué pasar por un navegador. Se hace desde
+  el servidor con `chasqui cuenta añadir`.
+
 ---
 
 ## Lo que hay que decirle al cliente, y que ningún competidor dice
@@ -171,4 +209,4 @@ conocimiento que él mantiene, que es un producto legítimo y otro precio.
 | 1 · Canal web / móvil | interfaz lista, adaptador **sin construir** (nadie lo ha pedido) |
 | 2 · Leer los datos del cliente | **hecha** — `chasqui consulta cargar` |
 | 3 · Avisar a su sistema | sin construir |
-| 4 · API propia + panel | sin construir |
+| 4 · API propia + panel | **hecha** — `/api/*` con sesión, y el panel dentro del binario |

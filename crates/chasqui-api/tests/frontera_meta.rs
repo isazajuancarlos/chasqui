@@ -283,10 +283,10 @@ async fn instancia_con_consulta(
         .spawn()
         .unwrap();
 
-    let base = format!("http://127.0.0.1:{puerto}");
-    esperar_a_que_responda(&base).await;
-
-    Instancia { hijo, base, _directorio: dir }
+    // Se arma antes de esperar para que, si no arranca, su `Drop` mate al hijo.
+    let instancia = Instancia { hijo, base: format!("http://127.0.0.1:{puerto}"), _directorio: dir };
+    esperar_a_que_responda(&instancia.base).await;
+    instancia
 }
 
 async fn esperar_a_que_responda(base: &str) {
