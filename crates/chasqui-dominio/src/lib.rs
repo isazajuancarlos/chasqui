@@ -17,6 +17,7 @@
 pub mod atencion;
 pub mod canal;
 pub mod conocimiento;
+pub mod consulta;
 pub mod conversacion;
 pub mod guion;
 pub mod mensaje;
@@ -25,6 +26,7 @@ pub mod texto;
 pub use atencion::{Accion, Contexto, Motivo, atender};
 pub use canal::Canal;
 pub use conocimiento::{Entrada, buscar};
+pub use consulta::{Consulta, Metodo, TipoDato};
 pub use conversacion::{Estado, VENTANA_HORAS_META, ventana_cerrada};
 pub use guion::Guion;
 pub use mensaje::{MensajeEntrante, MensajeSaliente};

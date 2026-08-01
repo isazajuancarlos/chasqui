@@ -47,6 +47,9 @@ struct Envio {
 
 type Bitacora = Arc<Mutex<Vec<Envio>>>;
 
+/// Lo que la API del cliente recibió: el dato consultado y la autorización.
+type BitacoraCliente = Arc<Mutex<Vec<(String, String)>>>;
+
 /// Levanta el sustituto de la API Graph y devuelve su URL y su bitácora.
 async fn graph_falso() -> (String, Bitacora) {
     let bitacora: Bitacora = Arc::new(Mutex::new(Vec::new()));
@@ -141,12 +144,68 @@ fn orden(bd: &str, graph: &str, puerto: u16) -> Command {
     c
 }
 
+/// El sustituto de la API del cliente: su ERP, su tienda, lo que sea.
+///
+/// Devuelve la URL, la bitácora de lo que le pidieron y el token que exige. Es
+/// la otra mitad de la frontera: hasta aquí las pruebas comprobaban lo que ENTRA
+/// de Meta; la costura 2 es lo que SALE hacia el sistema del cliente.
+async fn api_del_cliente() -> (String, BitacoraCliente) {
+    let bitacora: BitacoraCliente = Arc::new(Mutex::new(Vec::new()));
+
+    async fn pedido(
+        Path(numero): Path<String>,
+        State(bitacora): State<BitacoraCliente>,
+        cabeceras: HeaderMap,
+    ) -> (axum::http::StatusCode, axum::Json<Value>) {
+        let autorizacion = cabeceras
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        bitacora.lock().unwrap().push((numero.clone(), autorizacion.clone()));
+
+        // Exige el token del cliente. Así la prueba distingue «llegó la llamada»
+        // de «llegó la llamada CON las credenciales que configuró el cliente».
+        if autorizacion != "Bearer TOKEN-DEL-ERP" {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                axum::Json(json!({ "error": "sin credenciales" })),
+            );
+        }
+        (
+            axum::http::StatusCode::OK,
+            axum::Json(json!({ "estado": "en camino", "envio": { "fecha": "3 de agosto" } })),
+        )
+    }
+
+    let app = axum::Router::new()
+        .route("/api/pedidos/{numero}", axum::routing::get(pedido))
+        .with_state(bitacora.clone());
+
+    let escucha = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let puerto = escucha.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(escucha, app).await.unwrap();
+    });
+
+    (format!("http://127.0.0.1:{puerto}"), bitacora)
+}
+
 /// Deja una instancia lista: base migrada, aviso puesto, cuenta dada de alta,
 /// preguntas frecuentes cargadas y el servidor escuchando.
 ///
 /// Todo por la línea de órdenes del binario, que es como lo hará quien lo
 /// instale. Si un paso de la documentación no funciona, esta prueba se cae.
 async fn instancia(nombre: &str, graph: &str) -> Instancia {
+    instancia_con_consulta(nombre, graph, None).await
+}
+
+/// Como [`instancia`], y además carga una consulta contra `api_cliente`.
+async fn instancia_con_consulta(
+    nombre: &str,
+    graph: &str,
+    api_cliente: Option<&str>,
+) -> Instancia {
     let dir = tempdir::Directorio::nuevo(nombre);
     let bd = format!("sqlite://{}/chasqui.db", dir.0.display());
     let puerto = puerto_libre();
@@ -190,7 +249,33 @@ async fn instancia(nombre: &str, graph: &str) -> Instancia {
         .unwrap();
     assert!(salida.status.success(), "no se pudo cargar el conocimiento: {salida:?}");
 
-    // 4. A servir.
+    // 4. La consulta al sistema del cliente, si esta prueba la quiere.
+    if let Some(api) = api_cliente {
+        let archivo = dir.0.join("consultas.json");
+        std::fs::write(
+            &archivo,
+            json!([{
+                "titulo": "Estado del pedido",
+                "disparadores": ["mi pedido", "estado del pedido"],
+                "tipo_dato": "numero",
+                "pregunta": "¿Me confirma el número de pedido?",
+                "metodo": "GET",
+                "url": format!("{api}/api/pedidos/{{dato}}"),
+                "cabeceras": "Authorization: Bearer TOKEN-DEL-ERP",
+                "plantilla_respuesta":
+                    "Su pedido está {estado} y llega el {envio.fecha}."
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let salida = orden(&bd, graph, puerto)
+            .args(["consulta", "cargar", archivo.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(salida.status.success(), "no se pudo cargar la consulta: {salida:?}");
+    }
+
+    // 5. A servir.
     let hijo = orden(&bd, graph, puerto)
         .arg("servir")
         .stdout(Stdio::null())
@@ -459,4 +544,89 @@ async fn ciento_veinte_conversaciones_distintas_se_atienden_todas() {
         .filter(|e| texto_de(e).contains("de 8 a 6"))
         .count();
     assert_eq!(respuestas, 120, "solo {respuestas} de 120 recibieron la respuesta");
+}
+
+// --- Costura 2: consultas al sistema del cliente ---
+
+#[tokio::test]
+async fn el_bot_responde_con_los_datos_del_sistema_del_cliente() {
+    // La prueba de la costura 2 de punta a punta: entra un webhook de Meta, sale
+    // una llamada a la API del cliente CON sus credenciales, y vuelve a salir un
+    // mensaje de WhatsApp con lo que esa API contestó. Nada de esto lo puede ver
+    // una prueba de unidad: son tres procesos y dos fronteras.
+    let (graph, bitacora) = graph_falso().await;
+    let (api, pedidos) = api_del_cliente().await;
+    let instancia = instancia_con_consulta("consulta", &graph, Some(&api)).await;
+
+    let cuerpo = webhook("wamid.c1", "573001", "¿dónde está mi pedido 1234?");
+    let firma = chasqui_api::firma::firmar(&cuerpo, SECRETO_APP);
+    assert_eq!(mandar(&instancia.base, &cuerpo, &firma).await.status(), 200);
+
+    let envios = esperar_envios(&bitacora, 2).await;
+    assert_eq!(texto_de(&envios[0]), AVISO);
+    assert_eq!(
+        texto_de(&envios[1]),
+        "Su pedido está en camino y llega el 3 de agosto.",
+        "la respuesta no salió del sistema del cliente"
+    );
+
+    let pedidos = pedidos.lock().unwrap().clone();
+    assert_eq!(pedidos.len(), 1, "se llamó {} veces a la API del cliente", pedidos.len());
+    assert_eq!(pedidos[0].0, "1234", "se consultó el pedido equivocado");
+    assert_eq!(
+        pedidos[0].1, "Bearer TOKEN-DEL-ERP",
+        "las credenciales del cliente hacia SU sistema no llegaron descifradas"
+    );
+}
+
+#[tokio::test]
+async fn sin_el_numero_pregunta_y_lo_recuerda_para_el_mensaje_siguiente() {
+    // Preguntar y recordar. Si la espera no se guardara, el «1234» suelto que
+    // llega después no significaría nada y quien escribe volvería a empezar.
+    let (graph, bitacora) = graph_falso().await;
+    let (api, pedidos) = api_del_cliente().await;
+    let instancia = instancia_con_consulta("pregunta", &graph, Some(&api)).await;
+
+    let primero = webhook("wamid.p1", "573001", "¿dónde está mi pedido?");
+    let f1 = chasqui_api::firma::firmar(&primero, SECRETO_APP);
+    assert_eq!(mandar(&instancia.base, &primero, &f1).await.status(), 200);
+
+    let envios = esperar_envios(&bitacora, 2).await;
+    assert_eq!(texto_de(&envios[1]), "¿Me confirma el número de pedido?");
+    assert!(pedidos.lock().unwrap().is_empty(), "se llamó a la API sin tener el número");
+
+    // El número, a secas. Solo significa algo porque se estaba esperando.
+    let segundo = webhook("wamid.p2", "573001", "1234");
+    let f2 = chasqui_api::firma::firmar(&segundo, SECRETO_APP);
+    assert_eq!(mandar(&instancia.base, &segundo, &f2).await.status(), 200);
+
+    let envios = esperar_envios(&bitacora, 3).await;
+    assert_eq!(texto_de(&envios[2]), "Su pedido está en camino y llega el 3 de agosto.");
+    assert_eq!(pedidos.lock().unwrap()[0].0, "1234");
+}
+
+#[tokio::test]
+async fn si_el_sistema_del_cliente_falla_va_a_una_persona_y_no_se_inventa_nada() {
+    // Sin API del cliente levantada: la URL apunta a un puerto donde no hay
+    // nadie. Lo que NO puede pasar es que el bot conteste algo.
+    let (graph, bitacora) = graph_falso().await;
+    let puerto_muerto = puerto_libre();
+    let instancia = instancia_con_consulta(
+        "caido",
+        &graph,
+        Some(&format!("http://127.0.0.1:{puerto_muerto}")),
+    )
+    .await;
+
+    let cuerpo = webhook("wamid.f1", "573001", "¿dónde está mi pedido 1234?");
+    let firma = chasqui_api::firma::firmar(&cuerpo, SECRETO_APP);
+    assert_eq!(mandar(&instancia.base, &cuerpo, &firma).await.status(), 200);
+
+    let envios = esperar_envios(&bitacora, 2).await;
+    let respuesta = texto_de(&envios[1]);
+    assert!(
+        respuesta.to_lowercase().contains("persona"),
+        "con el sistema del cliente caído se contestó {respuesta:?} en vez de llamar a alguien"
+    );
+    assert!(!respuesta.contains("camino"), "se inventó un estado de pedido");
 }

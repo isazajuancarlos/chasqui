@@ -12,13 +12,23 @@
 //! ## La regla, en una frase
 //!
 //! Si no le toca al bot, calla; si la conversación es nueva, avisa; si piden una
-//! persona, la llama; si la base de conocimiento responde, responde; y si no,
-//! llama a una persona.
+//! persona, la llama; si algo configurado responde —una consulta al sistema del
+//! cliente o una pregunta frecuente—, responde con lo que más específicamente
+//! casó; y si no, llama a una persona.
 //!
 //! El último tramo es el que casi nunca se implementa y el que decide si el
 //! cliente apaga el bot a las dos semanas.
+//!
+//! ## Una sola regla para desempatar
+//!
+//! Consultas y preguntas frecuentes compiten en el mismo concurso y **gana el
+//! disparador más largo**. No es economía de código: es que el cliente solo tiene
+//! que entender una regla para saber por qué el bot contestó lo que contestó.
+//! Con dos reglas —«primero las consultas, luego las frecuentes»— haría falta
+//! saber en qué tabla está cada cosa para predecir la respuesta.
 
 use crate::conocimiento::{Entrada, buscar};
+use crate::consulta::{Consulta, Extraccion};
 use crate::conversacion::Estado;
 use crate::guion::Guion;
 use crate::mensaje::Clase;
@@ -53,6 +63,14 @@ pub enum Accion {
     MarcarAvisoEnviado,
     /// Pasar la conversación a una persona.
     Escalar(Motivo),
+    /// Preguntarle al sistema del cliente y responder con lo que diga.
+    ///
+    /// La llamada la hace `chasqui-api`: aquí solo se decide que hay que hacerla.
+    Consultar { consulta_id: i64, dato: Option<String> },
+    /// Falta el dato para consultar: se pregunta y se queda a la espera.
+    Esperar { consulta_id: i64 },
+    /// Ya no se espera ningún dato.
+    OlvidarEspera,
 }
 
 /// Todo lo que hace falta para decidir, ya reunido por quien sí toca la base.
@@ -63,6 +81,9 @@ pub struct Contexto<'a> {
     pub debe_avisar: bool,
     pub guion: &'a Guion,
     pub conocimiento: &'a [Entrada],
+    pub consultas: &'a [Consulta],
+    /// La consulta cuyo dato se está esperando, si se preguntó por él.
+    pub esperando: Option<i64>,
 }
 
 /// Decide qué hacer con un mensaje entrante.
@@ -92,6 +113,9 @@ pub fn atender(ctx: &Contexto<'_>) -> Vec<Accion> {
                 // otra clase lo hace, que el motivo lo diga en vez de mentir.
                 otra => format!("{otra:?}"),
             };
+            if ctx.esperando.is_some() {
+                acciones.push(Accion::OlvidarEspera);
+            }
             acciones.push(Accion::Enviar(ctx.guion.sin_respuesta.clone()));
             acciones.push(Accion::Escalar(Motivo::NoSoportado(tipo)));
             return acciones;
@@ -99,19 +123,54 @@ pub fn atender(ctx: &Contexto<'_>) -> Vec<Accion> {
         Some(t) => t,
     };
 
-    // 4. Pedir una persona gana sobre la base de conocimiento. Al revés, quien
-    //    escribe «necesito hablar con un asesor sobre el precio» recibiría la
-    //    lista de precios y se quedaría sin asesor.
+    // 4. Pedir una persona gana sobre todo lo demás. Al revés, quien escribe
+    //    «necesito hablar con un asesor sobre el precio» recibiría la lista de
+    //    precios y se quedaría sin asesor.
     if ctx.guion.pide_persona(texto) {
+        if ctx.esperando.is_some() {
+            acciones.push(Accion::OlvidarEspera);
+        }
         acciones.push(Accion::Enviar(ctx.guion.escalando.clone()));
         acciones.push(Accion::Escalar(Motivo::Peticion));
         return acciones;
     }
 
-    // 5. Lo que la base sabe responder.
-    match buscar(texto, ctx.conocimiento) {
+    // 5. Si se preguntó por un dato y este mensaje lo trae, se consulta y ya.
+    //    Solo cuenta cuando el dato SE PUEDE LEER: si quien escribe cambió de
+    //    tema, el mensaje sigue su camino normal más abajo en vez de morir aquí.
+    if let Some(id) = ctx.esperando
+        && let Some(consulta) = ctx.consultas.iter().find(|c| c.id == id)
+        && let Some(tipo) = consulta.tipo_dato
+        && let Extraccion::Uno(dato) = tipo.extraer(texto)
+    {
+        acciones.push(Accion::OlvidarEspera);
+        acciones.push(Accion::Consultar { consulta_id: id, dato: Some(dato) });
+        return acciones;
+    }
+
+    // 6. Lo configurado que responde. Consultas y preguntas frecuentes compiten
+    //    con el mismo criterio —gana el disparador más largo— para que el
+    //    cliente solo tenga que entender una regla.
+    let consulta = crate::consulta::buscar(texto, ctx.consultas);
+    let entrada = buscar(texto, ctx.conocimiento);
+
+    let gana_la_consulta = match (&consulta, &entrada) {
+        (Some(_), None) => true,
+        (None, _) => false,
+        // Empate exacto: manda la consulta. Quien se molestó en configurar una
+        // llamada a su sistema con el mismo disparador quiere ese dato, no el
+        // texto fijo que ya tenía.
+        (Some((_, dc)), Some(e)) => dc.len() >= e.disparador.len(),
+    };
+
+    if gana_la_consulta {
+        let (consulta, _) = consulta.expect("`gana_la_consulta` solo es cierto si hay consulta");
+        return con_consulta(ctx, texto, consulta, acciones);
+    }
+
+    match entrada {
         Some(c) => acciones.push(Accion::Enviar(c.entrada.respuesta.clone())),
-        // 6. Y lo que no se puede saber va a una persona. Aquí NO hay «responde
+        // 7. Y lo que no se puede saber va a una persona. Aquí NO hay «responde
         //    lo más parecido»: ese es el atajo que convierte al bot en un oráculo
         //    que se equivoca con seguridad (directiva 23).
         None => {
@@ -120,6 +179,46 @@ pub fn atender(ctx: &Contexto<'_>) -> Vec<Accion> {
         }
     }
 
+    acciones
+}
+
+/// Qué hacer cuando la que gana es una consulta al sistema del cliente.
+///
+/// **Se pregunta por el dato UNA vez.** Si ya se había preguntado por esta misma
+/// consulta y el dato sigue sin llegar, va a una persona: preguntar otra vez es
+/// un bucle, y un bot que repite la misma pregunta es peor que uno que no sabe.
+fn con_consulta(
+    ctx: &Contexto<'_>,
+    texto: &str,
+    consulta: &Consulta,
+    mut acciones: Vec<Accion>,
+) -> Vec<Accion> {
+    let Some(tipo) = consulta.tipo_dato else {
+        // No necesita ningún dato: se consulta directamente.
+        acciones.push(Accion::Consultar { consulta_id: consulta.id, dato: None });
+        return acciones;
+    };
+
+    match tipo.extraer(texto) {
+        Extraccion::Uno(dato) => {
+            if ctx.esperando.is_some() {
+                acciones.push(Accion::OlvidarEspera);
+            }
+            acciones.push(Accion::Consultar { consulta_id: consulta.id, dato: Some(dato) });
+        }
+        // Sin dato o con varios candidatos. Con varios NO se escoge uno: el
+        // pedido equivocado se responde igual de bien que el correcto.
+        Extraccion::Ninguno | Extraccion::Ambiguo => {
+            if ctx.esperando == Some(consulta.id) {
+                acciones.push(Accion::OlvidarEspera);
+                acciones.push(Accion::Enviar(ctx.guion.sin_respuesta.clone()));
+                acciones.push(Accion::Escalar(Motivo::NoSabe(texto.to_string())));
+            } else {
+                acciones.push(Accion::Enviar(consulta.pregunta.clone()));
+                acciones.push(Accion::Esperar { consulta_id: consulta.id });
+            }
+        }
+    }
     acciones
 }
 
@@ -152,7 +251,15 @@ mod pruebas {
         guion: &'a Guion,
         base: &'a [Entrada],
     ) -> Contexto<'a> {
-        Contexto { clase, estado, debe_avisar, guion, conocimiento: base }
+        Contexto {
+            clase,
+            estado,
+            debe_avisar,
+            guion,
+            conocimiento: base,
+            consultas: &[],
+            esperando: None,
+        }
     }
 
     #[test]
@@ -263,6 +370,177 @@ mod pruebas {
             );
             assert!(acciones.iter().any(|a| matches!(a, Accion::Enviar(_))));
         }
+    }
+
+    // --- Consultas al sistema del cliente (costura 2) ---
+
+    fn consultas() -> Vec<Consulta> {
+        vec![Consulta {
+            id: 7,
+            titulo: "Estado del pedido".into(),
+            disparadores: vec!["mi pedido".into(), "estado del pedido".into()],
+            tipo_dato: Some(crate::consulta::TipoDato::Numero),
+            pregunta: "¿Me confirma el número de pedido?".into(),
+            metodo: crate::consulta::Metodo::Get,
+            url: "https://cliente.example/api/pedidos/{dato}".into(),
+            cuerpo: None,
+            plantilla_respuesta: "Su pedido está {estado}.".into(),
+        }]
+    }
+
+    fn ctx_con<'a>(
+        clase: &'a Clase,
+        guion: &'a Guion,
+        base: &'a [Entrada],
+        consultas: &'a [Consulta],
+        esperando: Option<i64>,
+    ) -> Contexto<'a> {
+        Contexto {
+            clase,
+            estado: Estado::Bot,
+            debe_avisar: false,
+            guion,
+            conocimiento: base,
+            consultas,
+            esperando,
+        }
+    }
+
+    #[test]
+    fn con_el_dato_en_el_mensaje_se_consulta_de_una() {
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("¿dónde está mi pedido 1234?".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, None)),
+            vec![Accion::Consultar { consulta_id: 7, dato: Some("1234".into()) }]
+        );
+    }
+
+    #[test]
+    fn sin_el_dato_se_pregunta_una_vez_y_se_queda_esperando() {
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("¿dónde está mi pedido?".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, None)),
+            vec![
+                Accion::Enviar("¿Me confirma el número de pedido?".into()),
+                Accion::Esperar { consulta_id: 7 },
+            ]
+        );
+    }
+
+    #[test]
+    fn el_numero_suelto_que_llega_despues_completa_la_consulta() {
+        let (g, b, c) = (guion(), base(), consultas());
+        // «1234» a secas no dispara nada: solo significa algo porque se estaba
+        // esperando. Sin la espera, esto se iría a una persona.
+        let clase = Clase::Texto("1234".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, Some(7))),
+            vec![Accion::OlvidarEspera, Accion::Consultar { consulta_id: 7, dato: Some("1234".into()) }]
+        );
+    }
+
+    #[test]
+    fn no_se_pregunta_dos_veces_por_el_mismo_dato() {
+        // El bucle que hay que impedir: preguntar el número, que respondan «mi
+        // pedido» —que vuelve a disparar la consulta y sigue sin número— y
+        // preguntar otra vez, para siempre. A la segunda va a una persona.
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("es mi pedido, el de ayer".into());
+        let acciones = atender(&ctx_con(&clase, &g, &b, &c, Some(7)));
+        assert_eq!(
+            acciones,
+            vec![
+                Accion::OlvidarEspera,
+                Accion::Enviar("NO SÉ".into()),
+                Accion::Escalar(Motivo::NoSabe("es mi pedido, el de ayer".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn cambiar_de_tema_mientras_se_espera_no_castiga_a_nadie() {
+        // Se esperaba un número y llega una pregunta frecuente. Lo correcto es
+        // contestarla, no escalar por no haber traído el número.
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("mejor dime cuanto vale".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, Some(7))),
+            vec![Accion::Enviar("Desde $50.000.".into())]
+        );
+    }
+
+    #[test]
+    fn con_dos_numeros_distintos_se_pregunta_en_vez_de_escoger() {
+        // Responder por el pedido equivocado se ve igual de bien que responder
+        // por el correcto. Por eso la ambigüedad se pregunta.
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("mi pedido 1234 y el 5678".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, None)),
+            vec![
+                Accion::Enviar("¿Me confirma el número de pedido?".into()),
+                Accion::Esperar { consulta_id: 7 },
+            ]
+        );
+    }
+
+    #[test]
+    fn el_disparador_mas_largo_gana_este_en_la_tabla_que_este() {
+        // Una pregunta frecuente más específica le gana a una consulta, y al
+        // revés. Una sola regla para las dos tablas.
+        let g = guion();
+        let c = consultas();
+        let frecuentes = vec![Entrada {
+            id: 1,
+            titulo: "Pedidos internacionales".into(),
+            respuesta: "Los pedidos internacionales tardan 15 días.".into(),
+            disparadores: vec!["mi pedido internacional".into()],
+        }];
+        let clase = Clase::Texto("¿cuánto tarda mi pedido internacional 88?".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &frecuentes, &c, None)),
+            vec![Accion::Enviar("Los pedidos internacionales tardan 15 días.".into())]
+        );
+    }
+
+    #[test]
+    fn pedir_una_persona_gana_incluso_sobre_una_consulta_a_medias() {
+        let (g, b, c) = (guion(), base(), consultas());
+        let clase = Clase::Texto("mejor un asesor, por favor".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &c, Some(7))),
+            vec![
+                Accion::OlvidarEspera,
+                Accion::Enviar("TE PASO".into()),
+                Accion::Escalar(Motivo::Peticion),
+            ]
+        );
+    }
+
+    #[test]
+    fn una_consulta_sin_dato_configurado_se_lanza_sin_preguntar_nada() {
+        let g = guion();
+        let mut c = consultas();
+        c[0].tipo_dato = None;
+        let clase = Clase::Texto("mi pedido".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &[], &c, None)),
+            vec![Accion::Consultar { consulta_id: 7, dato: None }]
+        );
+    }
+
+    #[test]
+    fn una_espera_de_una_consulta_borrada_no_deja_la_conversacion_colgada() {
+        // El cliente borra la consulta desde el panel mientras alguien tiene una
+        // espera abierta. El mensaje siguiente tiene que seguir su camino normal.
+        let (g, b) = (guion(), base());
+        let clase = Clase::Texto("cuanto vale".into());
+        assert_eq!(
+            atender(&ctx_con(&clase, &g, &b, &[], Some(7))),
+            vec![Accion::Enviar("Desde $50.000.".into())]
+        );
     }
 
     #[test]

@@ -19,12 +19,16 @@
 
 use chrono::Utc;
 
-use chasqui_datos::{ajuste, conocimiento, conversacion, cuenta, escalado, mensaje as bd_mensaje};
+use chasqui_datos::{
+    ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, escalado,
+    mensaje as bd_mensaje,
+};
 use chasqui_dominio::atencion::{Accion, Contexto, Motivo, atender};
 use chasqui_dominio::conversacion::Estado;
 use chasqui_dominio::{MensajeEntrante, MensajeSaliente};
 
-use crate::canales::trozos;
+use crate::canales::{AdaptadorCanal, trozos};
+use crate::consultas;
 use crate::servicio::Servicio;
 
 #[derive(Debug, thiserror::Error)]
@@ -92,6 +96,7 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
 
     let guion = ajuste::cargar_guion(pool).await?;
     let base = conocimiento::activas(pool).await?;
+    let consultas = bd_consulta::activas(pool).await?;
 
     let acciones = atender(&Contexto {
         clase: &entrante.clase,
@@ -99,6 +104,8 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
         debe_avisar: conv.debe_avisar(),
         guion: &guion,
         conocimiento: &base,
+        consultas: &consultas,
+        esperando: conv.esperando,
     });
 
     let adaptador = servicio.canal(entrante.canal);
@@ -108,49 +115,134 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
     for accion in acciones {
         match accion {
             Accion::Enviar(texto) => {
-                // Una respuesta larga se parte en varios mensajes: pasarse del
-                // límite no trunca, Meta rechaza el envío entero.
-                for trozo in trozos(&texto, adaptador.limite_texto()) {
-                    let saliente = MensajeSaliente::nuevo(&entrante.contacto, &trozo);
-                    match adaptador.enviar(&cuenta.token, &cuenta.id_externo, &saliente).await {
-                        Ok(acuse) => {
-                            bd_mensaje::registrar_saliente(
-                                pool,
-                                conv.id,
-                                acuse.as_deref(),
-                                &trozo,
-                                Utc::now(),
-                            )
-                            .await?;
-                            enviados += 1;
-                        }
-                        Err(e) => {
-                            // No se pierde en el log: quien escribió se quedó sin
-                            // respuesta, y eso lo tiene que ver una persona.
-                            eprintln!("chasqui: falló el envío por {}: {e}", entrante.canal);
-                            encolar(
-                                servicio,
-                                conv.id,
-                                &Motivo::FalloTecnico(e.to_string()),
-                                ahora,
-                            )
-                            .await?;
-                            escalado_hecho = true;
-                        }
-                    }
-                }
+                enviados += enviar(
+                    servicio, adaptador, &cuenta, conv.id, &entrante.contacto, &texto, ahora,
+                    &mut escalado_hecho,
+                )
+                .await?;
             }
+
             Accion::MarcarAvisoEnviado => {
                 conversacion::marcar_aviso(pool, conv.id, ahora).await?;
             }
+
             Accion::Escalar(motivo) => {
                 encolar(servicio, conv.id, &motivo, ahora).await?;
                 escalado_hecho = true;
+            }
+
+            Accion::Esperar { consulta_id } => {
+                conversacion::poner_espera(pool, conv.id, Some(consulta_id)).await?;
+            }
+
+            Accion::OlvidarEspera => {
+                conversacion::poner_espera(pool, conv.id, None).await?;
+            }
+
+            Accion::Consultar { consulta_id, dato } => {
+                // El dominio la eligió de esta misma lista, así que está.
+                let Some(consulta) = consultas.iter().find(|c| c.id == consulta_id) else {
+                    eprintln!("chasqui: se pidió consultar la #{consulta_id}, que ya no está");
+                    continue;
+                };
+
+                // Las cabeceras —donde vive el token del cliente hacia su propio
+                // sistema— se descifran aquí, justo antes de usarlas.
+                let cabeceras =
+                    bd_consulta::cabeceras(pool, &servicio.boveda, consulta_id).await?;
+
+                let respuesta = consultas::ejecutar(
+                    &servicio.hacia_el_cliente,
+                    consulta,
+                    dato.as_deref(),
+                    cabeceras.as_deref(),
+                )
+                .await;
+
+                match respuesta {
+                    Ok(texto) => {
+                        enviados += enviar(
+                            servicio, adaptador, &cuenta, conv.id, &entrante.contacto, &texto,
+                            ahora, &mut escalado_hecho,
+                        )
+                        .await?;
+                    }
+                    Err(e) => {
+                        // No se improvisa una respuesta con lo que sí llegó: si
+                        // el sistema del cliente no contestó bien, quien lo sabe
+                        // es una persona. El motivo queda en la cola con el
+                        // detalle, que es lo que deja arreglar la configuración.
+                        eprintln!("chasqui: falló la consulta «{}»: {e}", consulta.titulo);
+                        enviados += enviar(
+                            servicio,
+                            adaptador,
+                            &cuenta,
+                            conv.id,
+                            &entrante.contacto,
+                            &guion.sin_respuesta,
+                            ahora,
+                            &mut escalado_hecho,
+                        )
+                        .await?;
+                        encolar(
+                            servicio,
+                            conv.id,
+                            &Motivo::FalloTecnico(format!("{}: {e}", consulta.titulo)),
+                            ahora,
+                        )
+                        .await?;
+                        escalado_hecho = true;
+                    }
+                }
             }
         }
     }
 
     Ok(Resultado::Atendido { enviados, escalado: escalado_hecho })
+}
+
+/// Manda un texto por el canal por el que entró y lo deja en el historial.
+///
+/// Devuelve cuántos mensajes salieron: una respuesta larga se parte en varios,
+/// porque pasarse del límite del canal **no trunca** — Meta rechaza el envío
+/// entero y quien escribió no recibe nada.
+#[allow(clippy::too_many_arguments)]
+async fn enviar(
+    servicio: &Servicio,
+    adaptador: &dyn AdaptadorCanal,
+    cuenta: &cuenta::Cuenta,
+    conversacion_id: i64,
+    contacto: &str,
+    texto: &str,
+    ahora: chrono::DateTime<Utc>,
+    escalado_hecho: &mut bool,
+) -> Result<usize, Fallo> {
+    let mut enviados = 0;
+    for trozo in trozos(texto, adaptador.limite_texto()) {
+        let saliente = MensajeSaliente::nuevo(contacto, &trozo);
+        match adaptador.enviar(&cuenta.token, &cuenta.id_externo, &saliente).await {
+            Ok(acuse) => {
+                bd_mensaje::registrar_saliente(
+                    &servicio.pool,
+                    conversacion_id,
+                    acuse.as_deref(),
+                    &trozo,
+                    Utc::now(),
+                )
+                .await?;
+                enviados += 1;
+            }
+            Err(e) => {
+                // No se pierde en el log: quien escribió se quedó sin respuesta,
+                // y eso lo tiene que ver una persona.
+                eprintln!("chasqui: falló el envío por {}: {e}", adaptador.canal());
+                encolar(servicio, conversacion_id, &Motivo::FalloTecnico(e.to_string()), ahora)
+                    .await?;
+                *escalado_hecho = true;
+            }
+        }
+    }
+    Ok(enviados)
 }
 
 /// Encola a una persona y calla al bot.

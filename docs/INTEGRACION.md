@@ -75,8 +75,56 @@ caras:
 3. **Las credenciales del cliente hacia su propio sistema son datos suyos**: se
    cifran con la misma bóveda y nunca salen en un log ni en el panel.
 
-**Determinación**: es la siguiente pieza de valor real, por encima del panel
-Angular. Queda como tarea, no se improvisa aquí.
+**Determinación**: era la siguiente pieza de valor real, por encima del panel
+Angular. **Construida el 2026-08-01.** Cómo se configura:
+
+```json
+[{
+  "titulo": "Estado del pedido",
+  "disparadores": ["mi pedido", "estado del pedido"],
+  "tipo_dato": "numero",
+  "pregunta": "¿Me confirma el número de pedido?",
+  "metodo": "GET",
+  "url": "https://cliente.example/api/pedidos/{dato}",
+  "cabeceras": "Authorization: Bearer TOKEN-DEL-CLIENTE",
+  "plantilla_respuesta": "Su pedido está {estado} y llega el {envio.fecha}."
+}]
+```
+
+```bash
+chasqui consulta cargar consultas.json   # las cabeceras se cifran al guardarlas
+chasqui consulta listar                  # nunca imprime credenciales
+```
+
+Las decisiones que se tomaron por el camino, con su motivo:
+
+- **El dato se captura por TIPO, no por expresión regular.** Tres tipos:
+  `numero`, `correo`, `codigo`. Una expresión regular en un cuadro de un panel es
+  código sin revisar, escrito por quien no programa, corriendo en el camino de
+  cada mensaje.
+- **Gana el candidato más largo, y un empate se pregunta.** En «2 unidades del
+  pedido 1234», coger el primer número daría 2 y el cliente recibiría el estado
+  de un pedido ajeno sin que nada fallara. Con dos números distintos no se
+  escoge: se pregunta.
+- **Se pregunta UNA vez por el dato que falta.** A la segunda va a una persona:
+  preguntar otra vez es un bucle, y un bot que repite la misma pregunta es peor
+  que uno que no sabe. La espera se guarda en la conversación, no en memoria, así
+  que el número que llega tres minutos después sirve aunque el servidor se haya
+  reiniciado.
+- **Consultas y preguntas frecuentes compiten con la misma regla**: gana el
+  disparador más largo. El cliente solo tiene que entender una regla para saber
+  por qué el bot contestó lo que contestó.
+- **Solo `GET` y `POST`.** Un `DELETE` configurable desde un panel es una forma
+  muy cara de que un mensaje de WhatsApp borre un pedido.
+- **Sin redirecciones.** Una API que contesta 302 se llevaría con ella la
+  cabecera `Authorization` del cliente a un servidor que él no configuró.
+- **Un dato con dos puntos seguidos no se consulta.** La barra ya va escapada,
+  pero el punto no —un correo los lleva—, así que un `..` sobreviviría hasta un
+  servidor que normalice después de decodificar. Lo escribió una prueba al
+  ponerse en rojo.
+- **Si falta un campo de la plantilla, no se manda nada.** «Su pedido está y
+  llega el » parece que funcionó, y así nadie se entera de que la API del cliente
+  cambió.
 
 ## Costura 3 — Avisar al sistema del cliente cuando pasa algo
 
@@ -121,6 +169,6 @@ conocimiento que él mantiene, que es un producto legítimo y otro precio.
 |---|---|
 | 1 · Canal (WhatsApp, Instagram, Messenger) | **hecha**, con los tres adaptadores |
 | 1 · Canal web / móvil | interfaz lista, adaptador **sin construir** (nadie lo ha pedido) |
-| 2 · Leer los datos del cliente | **sin construir** — la siguiente pieza |
+| 2 · Leer los datos del cliente | **hecha** — `chasqui consulta cargar` |
 | 3 · Avisar a su sistema | sin construir |
 | 4 · API propia + panel | sin construir |

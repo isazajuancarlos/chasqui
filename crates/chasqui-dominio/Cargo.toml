@@ -10,5 +10,9 @@ publish.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+# La respuesta del sistema del cliente llega en JSON y hay que rellenar con ella
+# la plantilla. Eso es manipular datos, no hablar por la red: sigue siendo puro y
+# se prueba sin levantar nada.
+serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }

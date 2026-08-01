@@ -17,7 +17,8 @@ use clap::{Parser, Subcommand};
 
 use chasqui_api::config::Config;
 use chasqui_api::{router, servicio::Servicio};
-use chasqui_datos::{ajuste, conocimiento, cuenta, escalado};
+use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, escalado};
+use chasqui_dominio::consulta::{Consulta, Metodo, TipoDato};
 use chasqui_dominio::Canal;
 
 #[derive(Parser)]
@@ -44,6 +45,9 @@ enum Orden {
     /// Las preguntas frecuentes que responde el bot.
     #[command(subcommand)]
     Conocimiento(OrdenConocimiento),
+    /// Las consultas al sistema del cliente (su API).
+    #[command(subcommand)]
+    Consulta(OrdenConsulta),
     /// Quién está esperando a una persona.
     Escalados,
 }
@@ -86,11 +90,41 @@ enum OrdenConocimiento {
     Listar,
 }
 
+#[derive(Subcommand)]
+enum OrdenConsulta {
+    /// Carga consultas de un archivo JSON. **El archivo puede llevar las
+    /// credenciales del cliente hacia su propio sistema**: se cifran al
+    /// guardarlas, y conviene borrar el archivo después.
+    Cargar { archivo: String },
+    /// Enumera las consultas. Nunca imprime cabeceras.
+    Listar,
+}
+
 #[derive(serde::Deserialize)]
 struct EntradaJson {
     titulo: String,
     respuesta: String,
     disparadores: Vec<String>,
+}
+
+/// Una consulta tal como la escribe el cliente en un archivo.
+#[derive(serde::Deserialize)]
+struct ConsultaJson {
+    titulo: String,
+    disparadores: Vec<String>,
+    /// `numero`, `correo`, `codigo`, o ausente si no hace falta ningún dato.
+    #[serde(default)]
+    tipo_dato: Option<String>,
+    #[serde(default)]
+    pregunta: String,
+    metodo: String,
+    url: String,
+    #[serde(default)]
+    cuerpo: Option<String>,
+    /// «Nombre: valor», una por línea. Aquí va el token del cliente.
+    #[serde(default)]
+    cabeceras: Option<String>,
+    plantilla_respuesta: String,
 }
 
 #[tokio::main]
@@ -165,6 +199,71 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
         Orden::Conocimiento(OrdenConocimiento::Listar) => {
             for e in conocimiento::activas(&pool).await? {
                 println!("#{}  {}  ({})", e.id, e.titulo, e.disparadores.join(" | "));
+            }
+            Ok(())
+        }
+
+        Orden::Consulta(OrdenConsulta::Cargar { archivo }) => {
+            let texto = std::fs::read_to_string(&archivo)?;
+            let entradas: Vec<ConsultaJson> = serde_json::from_str(&texto)?;
+            let boveda = chasqui_datos::Boveda::nueva(&config.frase);
+            let cuantas = entradas.len();
+
+            for e in entradas {
+                // El tipo de dato y el método se validan ANTES de guardar. Una
+                // consulta guardada con un método que no existe se descubriría
+                // el día que alguien escribiera, y el síntoma sería «el bot no
+                // responde» sin más pistas.
+                let metodo = Metodo::desde_ranura(&e.metodo).ok_or_else(|| {
+                    format!("«{}»: método {:?}; solo GET y POST", e.titulo, e.metodo)
+                })?;
+                let tipo_dato = match e.tipo_dato.as_deref() {
+                    None | Some("") => None,
+                    Some(t) => Some(TipoDato::desde_ranura(t).ok_or_else(|| {
+                        format!("«{}»: tipo de dato {t:?}; solo numero, correo o codigo", e.titulo)
+                    })?),
+                };
+                if tipo_dato.is_some() && e.pregunta.trim().is_empty() {
+                    // Sin pregunta, el bot se queda mudo justo cuando le falta
+                    // el dato: manda un texto vacío y espera una respuesta que
+                    // nadie sabe que tiene que dar.
+                    return Err(format!(
+                        "«{}»: captura un dato pero no trae «pregunta». ¿Qué le decimos a quien \
+                         escribe cuando el dato no viene?",
+                        e.titulo
+                    )
+                    .into());
+                }
+
+                let consulta = Consulta {
+                    id: 0,
+                    titulo: e.titulo,
+                    disparadores: e.disparadores,
+                    tipo_dato,
+                    pregunta: e.pregunta,
+                    metodo,
+                    url: e.url,
+                    cuerpo: e.cuerpo,
+                    plantilla_respuesta: e.plantilla_respuesta,
+                };
+                consulta_bd::crear(&pool, &boveda, &consulta, e.cabeceras.as_deref(), Utc::now())
+                    .await?;
+            }
+            println!("{cuantas} consultas cargadas desde {archivo}");
+            if texto.contains("cabeceras") {
+                println!(
+                    "AVISO: {archivo} lleva credenciales del cliente. Ya están cifradas en la \
+                     base; borre el archivo."
+                );
+            }
+            Ok(())
+        }
+
+        Orden::Consulta(OrdenConsulta::Listar) => {
+            for (id, titulo, url, activa, con_cabeceras) in consulta_bd::listar(&pool).await? {
+                let estado = if activa { "activa" } else { "inactiva" };
+                let credenciales = if con_cabeceras { "con credenciales" } else { "sin credenciales" };
+                println!("#{id}  {titulo:<28} {estado:<9} {credenciales:<17} {url}");
             }
             Ok(())
         }

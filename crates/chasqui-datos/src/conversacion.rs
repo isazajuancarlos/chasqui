@@ -22,6 +22,10 @@ pub struct Conversacion {
     pub abierta_en: DateTime<Utc>,
     pub ultimo_en: DateTime<Utc>,
     pub aviso_en: Option<DateTime<Utc>>,
+    /// La consulta cuyo dato se le pidió a quien escribe y todavía no ha
+    /// llegado. Es una pista y no una relación: si el cliente borra la consulta,
+    /// el dominio sigue su camino normal.
+    pub esperando: Option<i64>,
 }
 
 impl Conversacion {
@@ -65,11 +69,12 @@ fn leer(fila: sqlx::sqlite::SqliteRow) -> Resultado<Conversacion> {
         abierta_en: momento(&fila, "abierta_en", id)?,
         ultimo_en: momento(&fila, "ultimo_en", id)?,
         aviso_en: aviso.map(|t| fecha(&t, "aviso_en", id)).transpose()?,
+        esperando: fila.try_get("esperando_consulta")?,
     })
 }
 
 const COLUMNAS: &str =
-    "id, cuenta_id, contacto, estado, abierta_en, ultimo_en, aviso_en";
+    "id, cuenta_id, contacto, estado, abierta_en, ultimo_en, aviso_en, esperando_consulta";
 
 /// La conversación viva de este contacto, o una nueva si la ventana se cerró.
 ///
@@ -132,7 +137,22 @@ pub async fn abrir_o_continuar(
         abierta_en: ahora,
         ultimo_en: ahora,
         aviso_en: None,
+        esperando: None,
     })
+}
+
+/// Anota —o borra— qué dato se está esperando.
+///
+/// Se guarda en la conversación y no en memoria del proceso a propósito: quien
+/// escribe el número de pedido tres minutos después merece respuesta aunque el
+/// servidor se haya reiniciado entre medias.
+pub async fn poner_espera(pool: &SqlitePool, id: i64, consulta: Option<i64>) -> Resultado<()> {
+    sqlx::query("UPDATE conversacion SET esperando_consulta = ?1 WHERE id = ?2")
+        .bind(consulta)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 /// Anota que el aviso de privacidad ya salió. Es la prueba, con fecha, de haber
@@ -297,6 +317,41 @@ mod pruebas {
             .await
             .unwrap();
         assert_eq!(filas, 1);
+    }
+
+    #[tokio::test]
+    async fn la_espera_de_un_dato_sobrevive_al_mensaje_siguiente() {
+        // Si `abrir_o_continuar` la borrara, el número de pedido que llega
+        // después no significaría nada y quien escribe volvería a la casilla uno.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        let c = abrir_o_continuar(&pool, cta, "573001", t0(), 24).await.unwrap();
+        assert_eq!(c.esperando, None);
+
+        poner_espera(&pool, c.id, Some(7)).await.unwrap();
+        let seguido = abrir_o_continuar(&pool, cta, "573001", t0() + Duration::minutes(3), 24)
+            .await
+            .unwrap();
+        assert_eq!(seguido.esperando, Some(7));
+
+        poner_espera(&pool, c.id, None).await.unwrap();
+        assert_eq!(por_id(&pool, c.id).await.unwrap().unwrap().esperando, None);
+    }
+
+    #[tokio::test]
+    async fn una_conversacion_nueva_no_hereda_la_espera_de_la_anterior() {
+        // Pasadas 24 h la conversación es otra. Arrastrar la espera haría que un
+        // «1234» del día siguiente consultara un pedido que nadie preguntó.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        let c = abrir_o_continuar(&pool, cta, "573001", t0(), 24).await.unwrap();
+        poner_espera(&pool, c.id, Some(7)).await.unwrap();
+
+        let nueva = abrir_o_continuar(&pool, cta, "573001", t0() + Duration::hours(25), 24)
+            .await
+            .unwrap();
+        assert_ne!(nueva.id, c.id);
+        assert_eq!(nueva.esperando, None);
     }
 
     #[tokio::test]

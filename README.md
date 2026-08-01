@@ -28,8 +28,8 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 | Escalado a una persona | **funciona**, con cola y con el bot callándose |
 | Aviso de privacidad | **funciona**, y sin él el bot no atiende |
 | Credenciales del cliente cifradas en reposo | **funciona** (`guaca`, sobre Quipu) |
+| Leer los datos del cliente (su API) | **funciona** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Flujos y toma de pedidos | pendiente |
-| Leer los datos del cliente (su API) | pendiente — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Panel de configuración | pendiente; hoy se administra por la línea de órdenes |
 
 ## Cómo se instala y se pone a andar
@@ -53,7 +53,12 @@ chasqui cuenta añadir --canal whatsapp --id <phone_number_id> --nombre Ventas
 # 3. Las preguntas frecuentes.
 chasqui conocimiento cargar preguntas.json
 
-# 4. A servir. Detrás de nginx con TLS; Meta exige https.
+# 4. Opcional: las consultas a SU sistema, para que el bot conteste con sus
+#    datos («su pedido 1234 llega el martes»). El archivo puede llevar sus
+#    credenciales: se cifran al guardarlas y luego se borra el archivo.
+chasqui consulta cargar consultas.json
+
+# 5. A servir. Detrás de nginx con TLS; Meta exige https.
 chasqui servir
 ```
 

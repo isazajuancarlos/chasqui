@@ -22,9 +22,27 @@ pub struct Servicio {
     secreto_app: Arc<String>,
     token_verificacion: Arc<String>,
     canales: Arc<HashMap<Canal, Box<dyn AdaptadorCanal>>>,
+    /// El cliente HTTP con el que se le pregunta al sistema del cliente. Va
+    /// aparte del de Meta: la paciencia con la API de un negocio y la paciencia
+    /// con Meta no tienen por qué ser la misma, y mezclarlas ata dos decisiones
+    /// que se revisan por motivos distintos.
+    pub hacia_el_cliente: reqwest::Client,
     /// Cuántas horas dura una conversación. Sale de Meta; es configurable
     /// porque Meta la ha cambiado antes y cambiarla no debería exigir compilar.
     pub horas_ventana: i64,
+}
+
+/// El cliente HTTP para las consultas al sistema del cliente.
+///
+/// **Sin redirecciones.** Una API que contesta 302 hacia otro sitio se llevaría
+/// con ella la cabecera `Authorization` del cliente — sus credenciales, a un
+/// servidor que él no configuró. Que falle y se vea.
+fn cliente_de_consultas() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .expect("el cliente HTTP se construye con la configuración por defecto")
 }
 
 impl Servicio {
@@ -55,6 +73,7 @@ impl Servicio {
 
         Servicio {
             pool,
+            hacia_el_cliente: cliente_de_consultas(),
             boveda: Boveda::nueva(&config.frase),
             secreto_app: Arc::new(config.secreto_app.clone()),
             token_verificacion: Arc::new(config.token_verificacion.clone()),

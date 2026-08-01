@@ -14,6 +14,7 @@
 
 pub mod ajuste;
 pub mod conocimiento;
+pub mod consulta;
 pub mod conversacion;
 pub mod cuenta;
 pub mod escalado;

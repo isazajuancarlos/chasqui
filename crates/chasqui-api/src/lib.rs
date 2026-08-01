@@ -13,6 +13,7 @@
 pub mod atender;
 pub mod canales;
 pub mod config;
+pub mod consultas;
 pub mod firma;
 pub mod servicio;
 pub mod webhook;
