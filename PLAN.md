@@ -173,7 +173,22 @@ mundo. Solo se paga cuando el negocio inicia la conversación.
 El coste real de operación no es Meta: es el modelo de lenguaje, y ronda un dólar
 por cada mil conversaciones.
 
-## 8. Estado
+## 8. Lo que puede salir mal
+
+En [`RIESGOS.md`](RIESGOS.md): once puntos sacados de leer las cinco peticiones,
+cada uno con la señal que lo delata en el texto del cliente para reconocerlo en
+la sexta sin releer nada.
+
+Los tres que más caros salen si se olvidan:
+
+1. **El plazo depende de la verificación de Meta**, que no controla nadie. Se
+   cuenta desde que la cuenta está lista, y así se escribe.
+2. **Ninguna petición dice el volumen**, y las tres que dicen «escalable» no
+   ponen número. Eso se convierte en cifra antes de cotizar.
+3. **Si el cliente no tiene sus contenidos por escrito**, el proyecto se para
+   esperándolos y la culpa acaba siendo del proveedor.
+
+## 9. Estado
 
 Nada implementado. Este documento es el plan, no un informe de avance.
 

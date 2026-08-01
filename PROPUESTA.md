@@ -83,6 +83,12 @@ mencionar.
 
 Pago en dos hitos: 50 % al empezar y 50 % contra entrega funcionando.
 
+**Sobre el plazo:** cuenta desde que su cuenta de WhatsApp Business está
+verificada por Meta y con acceso a la API. Esa verificación la hace Meta con sus
+documentos y **no depende de ninguno de los dos** — le acompañamos en el trámite,
+pero el reloj de la entrega empieza cuando esté lista. Si ya la tiene, empezamos
+el mismo día.
+
 ### Acompañamiento mensual (opcional)
 
 | | COP / mes | USD / mes |
@@ -151,8 +157,12 @@ $70.000 COP mensuales**, casi todo servidor.
   y con las reglas que usted define. Que un sistema aprenda solo de las
   conversaciones suena bien y en la práctica produce respuestas que nadie
   autorizó. Cuando quiera que sepa algo nuevo, lo carga y lo sabe al momento.
-- **No incluye redacción de sus contenidos.** Si no tiene el catálogo o las
-  preguntas frecuentes por escrito, podemos ayudarle a armarlos; se cotiza aparte.
+- **No incluye redacción de sus contenidos.** El asistente responde con sus
+  documentos: si el catálogo o las preguntas frecuentes solo están en la cabeza
+  de alguien, hay que escribirlos primero. Podemos ayudarle y se cotiza aparte.
+- **El alcance es el de esta propuesta.** Lo que se pueda añadir después se
+  cotiza aparte — el sistema está hecho para crecer, y eso es distinto de que
+  todo lo que venga esté incluido en este precio.
 
 ---
 
