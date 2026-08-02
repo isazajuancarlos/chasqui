@@ -116,6 +116,44 @@ pub async fn salir(State(servicio): State<Servicio>) -> Response {
         .into_response()
 }
 
+/// Lo que la pantalla de entrada enseña cuando la instalación es una
+/// demostración pública. **Vacío en cualquier instalación normal.**
+#[derive(Serialize)]
+pub struct DemoJson {
+    pub correo: String,
+    pub clave: String,
+    /// Una línea para explicar qué es esto. La escribe quien monta la demo.
+    pub nota: String,
+}
+
+/// `GET /api/demo` — **sin sesión, y tiene que ser sin sesión**: lo lee la
+/// pantalla de entrada, que por definición todavía no la tiene.
+///
+/// Es la única ruta de `/api` sin [`Agente`], y por eso se justifica aquí: no
+/// devuelve NADA que no haya escrito a mano quien administra, en el ajuste
+/// `demo.credenciales`. Sin ese ajuste —el caso de todo cliente— responde 404 y
+/// la pantalla no enseña ninguna caja. No hay forma de que la instalación de un
+/// negocio filtre unas credenciales que nadie puso ahí.
+///
+/// El formato del ajuste es `correo|clave|nota`, con la nota opcional.
+pub async fn demo(State(servicio): State<Servicio>) -> Response {
+    let valor = match ajuste::leer(&servicio.pool, "demo.credenciales").await {
+        Ok(Some(v)) if !v.trim().is_empty() => v,
+        Ok(_) => return StatusCode::NOT_FOUND.into_response(),
+        Err(e) => return fallo("leer el ajuste de demostración", e),
+    };
+    let mut partes = valor.splitn(3, '|');
+    let correo = partes.next().unwrap_or_default().trim().to_string();
+    let clave = partes.next().unwrap_or_default().trim().to_string();
+    let nota = partes.next().unwrap_or_default().trim().to_string();
+    if correo.is_empty() || clave.is_empty() {
+        // Medio configurado no es configurado: enseñar una caja con un hueco es
+        // peor que no enseñarla (directiva 20).
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Json(DemoJson { correo, clave, nota }).into_response()
+}
+
 /// `GET /api/yo` — para que la interfaz sepa si la sesión sigue viva.
 pub async fn yo(Agente(quien): Agente) -> Json<Yo> {
     Json(Yo { id: quien.id, correo: quien.correo, nombre: quien.nombre })

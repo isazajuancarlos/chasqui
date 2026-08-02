@@ -141,6 +141,10 @@ pub fn router(servicio: Servicio) -> Router {
         // única de todo este bloque.
         .route("/sesion", post(panel::entrar).delete(panel::salir))
         .route("/yo", get(panel::yo))
+        // SIN sesión a propósito: la lee la pantalla de entrada. Solo devuelve
+        // lo que alguien escribió en el ajuste `demo.credenciales`, que en una
+        // instalación normal está vacío. Ver `panel::demo`.
+        .route("/demo", get(panel::demo))
         // La cola: lo que hace que «le paso con una persona» sea verdad.
         .route("/escalados", get(panel::escalados))
         .route("/escalados/{id}/atender", post(panel::atender_escalado))

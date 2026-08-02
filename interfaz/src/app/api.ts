@@ -21,6 +21,10 @@ export interface Conversacion {
   abierta_en: string; ultimo_en: string; mensajes: number; aviso_enviado: boolean;
 }
 /** Un archivo que mandó quien escribe. Sin los bytes: esos se piden aparte. */
+/** Credenciales publicadas de una instalación de demostración. En la de un
+ *  cliente no existe: la API responde 404 y la caja no se dibuja. */
+export interface Demo { correo: string; clave: string; nota: string; }
+
 export interface Medio {
   id: number;
   tipo: string;
@@ -103,6 +107,9 @@ export class Api {
   }
 
   conversaciones() { return this.http.get<Conversacion[]>('/api/conversaciones'); }
+  /** 404 cuando no hay demostración configurada, que es el caso normal. */
+  demo() { return this.http.get<Demo>('/api/demo'); }
+
   historial(id: number) { return this.http.get<Mensaje[]>(`/api/conversaciones/${id}`); }
   responder(id: number, texto: string) {
     return this.http.post<void>(`/api/conversaciones/${id}/mensaje`, { texto });
