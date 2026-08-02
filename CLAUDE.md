@@ -142,8 +142,9 @@ salvo `CHASQUI_SIN_TLS=1`.
 no lo dice.
 
 **La CLI y el servidor son el mismo binario** (`chasqui-api/src/main.rs`):
-`servir`, `cuenta`, `ajuste`, `conocimiento`, `consulta`, `documento`, `modelo`,
-`usuario`, `escalados`, `purgar`, `olvidar`. Las credenciales entran por la
+`servir`, `cuenta`, `ajuste`, `conocimiento`, `consulta`, `flujo`, `pedidos`,
+`documento`, `modelo`, `usuario`, `escalados`, `purgar`, `olvidar`, `respaldar`,
+`restaurar`. Las credenciales entran por la
 entrada estándar, nunca por argumento: los argumentos quedan en el historial y en
 `ps`. El README lleva la secuencia completa de instalación.
 
@@ -156,5 +157,18 @@ estructura y mide el códec, no el producto.
 ## Estado
 
 Construido el 2026-08-01. **El avance real lo lleva el `README.md`**; `PLAN.md`
-es el plan y `docs/META.md` lo que falta para probar contra Meta de verdad. Falta
-del MVP: flujos y toma de pedidos.
+es el plan y `docs/META.md` lo que falta para probar contra Meta de verdad.
+
+El MVP está completo: flujos de varios pasos y toma de pedidos entraron el
+2026-08-01 (commits `74b3d90`, `f27ca89`), y el canal web con su widget el mismo
+día. Lo único que queda del alcance es la **entrega del pedido al sistema del
+cliente por webhook saliente**, y está *decidido que no se construye hasta que
+aparezca el cliente que ya tenga ese sistema* (`docs/INTEGRACION.md`, costura 3):
+ninguna de las cinco peticiones lo nombra, y un webhook hacia una URL que nadie
+configura es código tras una bandera que nadie enciende. El pedido armado sale
+hoy por el panel (`GET /api/pedidos`, `chasqui pedidos`) y llamando a una
+persona.
+
+Lo que falta de verdad es **probarlo contra Meta** con la cuenta de Juan (#307):
+el apretón de manos ya se probó por internet real con túnel de Cloudflare, pero
+nadie le ha escrito «hola» a un número de WhatsApp de verdad.
