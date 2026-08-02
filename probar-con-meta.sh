@@ -93,9 +93,52 @@ if [ -n "${CHASQUI_PHONE_NUMBER_ID:-}" ] && [ -n "${CHASQUI_TOKEN_META:-}" ]; th
     printf '%s' "$CHASQUI_TOKEN_META" | "$BINARIO" cuenta añadir \
         --canal whatsapp --id "$CHASQUI_PHONE_NUMBER_ID" --nombre "Prueba" > /dev/null
     echo "   cuenta $CHASQUI_PHONE_NUMBER_ID dada de alta: RESPONDERÁ DE VERDAD"
-    printf '[{"titulo":"Saludo","respuesta":"Hola. Esto es una prueba de Chasqui y funciona.","disparadores":["hola","prueba","buenas"]}]' \
-        > "$TRABAJO/preguntas.json"
+    # Lo que se carga aquí es el MVP ENTERO, no un saludo. La primera petición
+    # de Workana pide tres cosas —preguntas frecuentes, precios y tomar el
+    # pedido por la conversación— y las tres tienen que poder enseñarse en la
+    # misma sesión de prueba. Hasta el 2026-08-02 esto cargaba una sola
+    # pregunta, y por eso los flujos y los pedidos nunca habían cruzado la
+    # frontera contra Meta de verdad (directiva 28).
+    cat > "$TRABAJO/preguntas.json" <<'JSON'
+[
+  {"titulo":"Saludo","respuesta":"Hola. Esto es una prueba de Chasqui y funciona.","disparadores":["hola","prueba","buenas"]},
+  {"titulo":"Horario","respuesta":"Atendemos de lunes a sábado, de 8:00 a 18:00.","disparadores":["horario","a qué hora","abren","cierran"]},
+  {"titulo":"Precios","respuesta":"La silla cuesta $120.000 y la mesa $340.000. El domicilio dentro de la ciudad es gratis.","disparadores":["precio","cuánto cuesta","valor","cuanto vale"]}
+]
+JSON
     "$BINARIO" conocimiento cargar "$TRABAJO/preguntas.json" > /dev/null
+
+    # El flujo: tomar un pedido. `cantidad` va tipada a propósito — es lo que
+    # hace que «tres» no pase por una cantidad y el pedido no le llegue al
+    # negocio con un campo inservible.
+    cat > "$TRABAJO/flujos.json" <<'JSON'
+[
+  {
+    "titulo": "Pedido",
+    "disparadores": ["pedido", "quiero pedir", "comprar", "hacer un pedido"],
+    "pasos": [
+      {"clave":"producto",  "pregunta":"¿Qué producto quiere? Tenemos sillas y mesas."},
+      {"clave":"cantidad",  "pregunta":"¿Cuántas unidades?", "tipo_dato":"numero"},
+      {"clave":"direccion", "pregunta":"¿A qué dirección se lo llevamos?"}
+    ],
+    "confirmacion": "Anotado: {cantidad} de {producto} para {direccion}. Le confirmamos por aquí. ¡Gracias!"
+  }
+]
+JSON
+    "$BINARIO" flujo cargar "$TRABAJO/flujos.json" > /dev/null
+    echo "   cargado: 3 preguntas frecuentes y el flujo «Pedido» (3 pasos)"
+
+    # Y una persona para el panel: sin esto no se puede probar el escalado
+    # entero, que es la mitad que se vende. La contraseña se imprime porque la
+    # instancia es efímera y se borra al salir.
+    #
+    # `$RANDOM` NO vale aquí, y no por purismo: el túnel publica el binario
+    # ENTERO, así que el panel queda accesible desde internet igual que el
+    # webhook. Dos `$RANDOM` son unos 30 bits y los siembra el PID y la hora —
+    # adivinables—; esto son 128 bits de un generador criptográfico.
+    CLAVE_PANEL="prueba-$(openssl rand -hex 16)"
+    printf '%s\n' "$CLAVE_PANEL" | "$BINARIO" usuario crear \
+        --correo agente@prueba.local --nombre "Agente de prueba" > /dev/null 2>&1
 else
     echo "   SIN cuenta de WhatsApp: los mensajes que lleguen se registrarán y NO se contestarán."
     echo "   Para contestar de verdad, exporte CHASQUI_PHONE_NUMBER_ID y CHASQUI_TOKEN_META."
@@ -196,15 +239,39 @@ cat <<FIN
   URL de devolución de llamada:  $URL/webhook/whatsapp
   Token de verificación:         $TOKEN_VERIFICACION
 
-  Suscríbase al campo «messages».
+  Suscríbase al campo «messages» — Y ADEMÁS suscriba la APP a la cuenta de
+  WhatsApp Business, que la consola NO hace y no menciona:
+
+      curl -s -X POST -H "Authorization: Bearer \$CHASQUI_TOKEN_META" \\
+        "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps"
+
+  Sin eso Meta recibe el mensaje, lo enseña en su propio panel y no se lo
+  entrega a usted. Todo en verde y no llega nada.
 
   Los pasos completos, y lo que hay que mirar en cada uno, están en
   docs/META.md.
 ========================================================================
 
+  QUÉ PROBAR POR WHATSAPP, escribiéndole al número:
+
+    «hola»            → contesta el saludo (y antes, el aviso de privacidad)
+    «cuánto cuesta»   → contesta los precios
+    «quiero pedir»    → arranca el flujo de 3 pasos y termina en un pedido
+    una nota de voz   → no la entiende, escala a una persona y CALLA
+
+  EL PANEL, para hacer de esa persona:  http://127.0.0.1:$PUERTO
+    correo:      agente@prueba.local
+    contraseña:  ${CLAVE_PANEL:-<no se creó: falta la cuenta de WhatsApp>}
+========================================================================
+
 El túnel muere al cerrar esta terminal, y con él la URL. Si Meta ya estaba
 suscrito a esa URL, dejará de funcionar: es un túnel de usar y tirar, para
 una sesión de pruebas.
+
+OJO: el túnel publica el BINARIO ENTERO, no solo /webhook. El panel también
+queda accesible desde internet en esa URL mientras esto corra. Por eso la
+contraseña de arriba es aleatoria de verdad y por eso esto se cierra al
+terminar la prueba en vez de dejarlo levantado.
 
 Ctrl-C para terminar. Registro del servidor:
 

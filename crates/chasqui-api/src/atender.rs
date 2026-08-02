@@ -74,11 +74,10 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
             .await?;
 
     // El texto que se guarda es el que llegó; si no había (una foto), se guarda
-    // la clase para que el historial diga qué fue y no una línea en blanco.
-    let texto_guardado = match entrante.clase.texto() {
-        Some(t) => t.to_string(),
-        None => format!("[{:?}]", entrante.clase),
-    };
+    // el nombre humano de lo que fue, para que el historial lo diga y no salga
+    // una línea en blanco. Lo nombra el dominio: aquí se guardaba el `Debug` del
+    // enum y quien atendía leía `[NoSoportado("audio")]` en el panel.
+    let texto_guardado = entrante.clase.descripcion();
 
     let nuevo = bd_mensaje::registrar_entrante(
         pool,
