@@ -44,6 +44,23 @@ impl TipoDato {
         }
     }
 
+    /// Qué se le dice a quien contestó algo que no sirve, **antes** de volver a
+    /// preguntar.
+    ///
+    /// Existe por lo que se vio en un WhatsApp real el 2026-08-02: a
+    /// «¿Cuántas unidades?» el cliente contestó «tres», y el bot repitió
+    /// «¿Cuántas unidades?» palabra por palabra. Desde el otro lado eso no dice
+    /// «quiero una cifra»: dice «no te oí». Lo natural es repetir «tres» — y a
+    /// la segunda se escala. La frase la pone el TIPO y no el flujo, así que
+    /// todo flujo la hereda sin configurar nada (directiva 19).
+    pub fn aclaracion(&self) -> &'static str {
+        match self {
+            TipoDato::Numero => "Necesito una cifra, en números. Por ejemplo: 3.",
+            TipoDato::Correo => "Necesito un correo electrónico. Por ejemplo: nombre@dominio.com.",
+            TipoDato::Codigo => "Necesito el código. Por ejemplo: AB-1234.",
+        }
+    }
+
     pub fn desde_ranura(s: &str) -> Option<TipoDato> {
         match s {
             "numero" => Some(TipoDato::Numero),

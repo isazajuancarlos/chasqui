@@ -370,7 +370,15 @@ fn en_flujo(
                         paso.clave
                     ))));
                 } else {
-                    acciones.push(Accion::Enviar(paso.pregunta.clone()));
+                    // La repregunta NUNCA es la pregunta tal cual: dice primero
+                    // qué hacía falta. Repetirla igual se lee como «no te oí»,
+                    // y quien vuelve a escribir lo mismo acaba escalado sin
+                    // saber por qué.
+                    acciones.push(Accion::Enviar(format!(
+                        "{}\n{}",
+                        tipo.aclaracion(),
+                        paso.pregunta
+                    )));
                     acciones.push(Accion::SeguirFlujo(EnCurso {
                         repreguntado: true,
                         ..curso.clone()
@@ -992,7 +1000,9 @@ mod pruebas {
         assert_eq!(
             primera,
             vec![
-                Accion::Enviar("¿Cuántas unidades?".into()),
+                Accion::Enviar(
+                    "Necesito una cifra, en números. Por ejemplo: 3.\n¿Cuántas unidades?".into()
+                ),
                 Accion::SeguirFlujo(curso(&[("producto", "sillas")], true)),
             ]
         );
@@ -1012,6 +1022,26 @@ mod pruebas {
         // Lo recogido VIAJA: quien atienda no vuelve a preguntar el producto.
         assert!(resumen.contains("producto: sillas"), "{resumen}");
         assert!(resumen.contains("no se entendió «cantidad»"), "{resumen}");
+    }
+
+    #[test]
+    fn la_repregunta_nunca_es_la_pregunta_tal_cual() {
+        // La regla, no el caso: da igual el paso y da igual el tipo — si la
+        // repregunta sale byte a byte igual que la pregunta, el cliente lee
+        // «no te oí», repite lo mismo y acaba escalado sin enterarse de por
+        // qué. Se comprobó en un WhatsApp real antes de existir esta prueba.
+        let (g, f) = (guion(), vec![flujo_pedido()]);
+        let paso = f[0].paso(1).expect("el flujo de prueba tiene un paso tipado").clone();
+        let clase = Clase::Texto("unas pocas".into());
+        let antes = curso(&[("producto", "sillas")], false);
+
+        let acciones = atender(&ctx_flujo(&clase, &g, &[], &f, Some(&antes)));
+        let Accion::Enviar(dicho) = &acciones[0] else {
+            panic!("no repreguntó: {acciones:?}");
+        };
+        assert_ne!(*dicho, paso.pregunta, "repitió la pregunta palabra por palabra");
+        // Y sigue preguntando lo mismo: aclarar no es cambiar de tema.
+        assert!(dicho.contains(&paso.pregunta), "perdió la pregunta: {dicho}");
     }
 
     #[test]

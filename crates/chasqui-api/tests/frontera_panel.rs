@@ -960,7 +960,13 @@ async fn un_cliente_hace_un_pedido_entero_por_whatsapp() {
     // El aviso de salida va SOLO en la primera pregunta.
     assert!(dichos[1].contains("cancelar"), "no se anunció la salida: {dichos:?}");
     assert_eq!(dichos[2], "¿Cuántas unidades?");
-    assert_eq!(dichos[3], "¿Cuántas unidades?", "no repreguntó: {dichos:?}");
+    // La repregunta dice QUÉ hacía falta y vuelve a preguntar. Nunca la
+    // pregunta pelada: repetida igual se lee como «no te oí», y quien repite
+    // lo mismo acaba escalado sin saber por qué. Se vio en un WhatsApp real
+    // el 2026-08-02.
+    assert!(dichos[3].contains("¿Cuántas unidades?"), "no repreguntó: {dichos:?}");
+    assert_ne!(dichos[3], dichos[2], "repitió la pregunta palabra por palabra: {dichos:?}");
+    assert!(dichos[3].contains("cifra"), "no dijo qué hacía falta: {dichos:?}");
     assert_eq!(dichos[4], "¿A qué dirección lo enviamos?");
     assert_eq!(dichos[5], "Anotado: 3 de sillas de madera para Calle 5 #3-20. Gracias.");
 
