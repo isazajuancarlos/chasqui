@@ -28,7 +28,12 @@ import { Api, Conversacion, Escalado } from './api';
             <mat-chip>{{ motivo(e.motivo) }}</mat-chip>
             <span class="cuando">{{ e.creado_en | date: 'short' }}</span>
           </div>
-          @if (e.detalle) { <p class="detalle">«{{ e.detalle }}»</p> }
+          <!-- Sin comillas angulares y respetando los saltos de línea: el
+               detalle no siempre es una frase entrecomillada del cliente. Un
+               resumen de pedido y una explicación de fallo vienen en varias
+               líneas, y aplastarlas dejaba «Pedido producto: sillas cantidad: 3»
+               en un renglón. -->
+          @if (e.detalle) { <p class="detalle">{{ e.detalle }}</p> }
           <div class="acciones">
             <a mat-button [routerLink]="['/conversacion', e.conversacion_id]">Abrir</a>
             <button mat-flat-button (click)="atender(e)">Lo atiendo yo</button>
@@ -53,7 +58,7 @@ import { Api, Conversacion, Escalado } from './api';
     .fila { margin-bottom: .5rem; }
     .cabeza { display: flex; align-items: center; gap: .75rem; }
     .cuando { color: #666; font-size: .85rem; margin-left: auto; }
-    .detalle { margin: .5rem 0; color: #444; }
+    .detalle { margin: .5rem 0; color: #444; white-space: pre-wrap; }
     .acciones { display: flex; gap: .5rem; }
     .conv { display: flex; gap: .75rem; align-items: center; padding: .5rem .75rem;
             border-bottom: 1px solid #e0e0e0; text-decoration: none; color: inherit; }

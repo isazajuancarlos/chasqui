@@ -110,6 +110,53 @@ pub struct Descarga {
     pub mime: Option<String>,
 }
 
+impl ErrorCanal {
+    /// Qué hacer, dicho para **quien atiende la cola** y no para quien programa.
+    ///
+    /// Nace de verlo en pantalla el 2026-08-02: al agente le apareció en la cola
+    /// `Meta rechazó el envío con 401: {"error":{"message":"Authentication
+    /// Error","code":190,…}}`. Es exacto y es inútil — quien atiende no puede
+    /// hacer nada con eso, y lo que necesita saber es que hay que avisar a quien
+    /// administra el servidor. El texto crudo NO se tira: se conserva debajo,
+    /// porque es lo que sí le sirve a esa otra persona.
+    ///
+    /// **Solo se traduce lo que significa algo con certeza** (directiva 23).
+    /// Inventar una explicación para cualquier error convertiría un diagnóstico
+    /// en una adivinanza, y una alarma que dos veces dice lo que no es, a la
+    /// tercera no la mira nadie.
+    pub fn explicacion(&self) -> String {
+        let que_pasa = match self {
+            ErrorCanal::Rechazado { estado: 401, .. } | ErrorCanal::Rechazado { estado: 403, .. } => {
+                "Las credenciales de WhatsApp ya no sirven: caducaron o se revocaron. \
+                 AVISE A QUIEN ADMINISTRA EL SERVIDOR — hay que poner un token nuevo. \
+                 Mientras tanto el bot no puede responder a nadie."
+            }
+            ErrorCanal::Rechazado { estado: 429, .. } => {
+                "Meta está limitando los envíos por exceso de mensajes. \
+                 Suele pasarse solo; si sigue, avise a quien administra."
+            }
+            ErrorCanal::Rechazado { estado, .. } if *estado >= 500 => {
+                "Meta está fallando de su lado. Vuelva a intentarlo en unos minutos."
+            }
+            ErrorCanal::Rechazado { .. } => {
+                "Meta rechazó el mensaje. Responda por otra vía y avise a quien administra."
+            }
+            ErrorCanal::Red(_) => {
+                "No se pudo hablar con Meta: puede ser la conexión del servidor. \
+                 Si se repite, avise a quien administra."
+            }
+            // Un fallo de forma no ocurre al ENVIAR, y por eso no se le inventa
+            // una recomendación: aquí solo se dice qué pasó.
+            ErrorCanal::Forma { .. } | ErrorCanal::SinMedios { .. } | ErrorCanal::DemasiadoGrande { .. } => {
+                "El mensaje no se pudo enviar."
+            }
+        };
+        // El detalle va DEBAJO y completo: quien administra lo necesita entero
+        // para saber si es el token, el permiso o la red.
+        format!("{que_pasa}\n\nDetalle técnico: {self}")
+    }
+}
+
 /// Parte un texto en trozos que quepan en el canal, cortando por líneas o
 /// espacios cuando se puede.
 ///
@@ -154,6 +201,60 @@ pub fn trozos(texto: &str, limite: usize) -> Vec<String> {
         partes.push(String::new());
     }
     partes
+}
+
+#[cfg(test)]
+mod pruebas_explicacion {
+    use super::*;
+    use chasqui_dominio::Canal;
+
+    fn rechazo(estado: u16) -> ErrorCanal {
+        ErrorCanal::Rechazado {
+            canal: Canal::WhatsApp,
+            estado,
+            cuerpo: r#"{"error":{"message":"Authentication Error","code":190}}"#.into(),
+        }
+    }
+
+    #[test]
+    fn el_token_caducado_le_dice_a_quien_atiende_que_hacer() {
+        // El caso exacto que se vio en la cola el 2026-08-02.
+        let e = rechazo(401).explicacion();
+        assert!(e.contains("credenciales"), "{e}");
+        assert!(e.to_lowercase().contains("avise"), "no dice a quién acudir: {e}");
+        // Y el crudo sigue ahí para quien administra.
+        assert!(e.contains("code\":190"), "se perdió el detalle técnico: {e}");
+    }
+
+    #[test]
+    fn ningun_fallo_empieza_por_un_json() {
+        // La regla, no el caso: lo primero que lee una persona nunca puede ser
+        // el volcado de un error de una API.
+        for e in [
+            rechazo(401),
+            rechazo(429),
+            rechazo(500),
+            rechazo(418),
+            ErrorCanal::SinMedios { canal: Canal::Web },
+            ErrorCanal::DemasiadoGrande { tamano: 99, tope: 10 },
+            ErrorCanal::Forma { canal: Canal::WhatsApp, detalle: "raro".into() },
+        ] {
+            let texto = e.explicacion();
+            let primera = texto.lines().next().unwrap_or_default();
+            assert!(!primera.trim_start().starts_with('{'), "empieza con JSON: {primera}");
+            assert!(!primera.contains("code"), "empieza con jerga: {primera}");
+            assert!(primera.ends_with('.') || primera.ends_with(' '), "no es una frase: {primera}");
+        }
+    }
+
+    #[test]
+    fn un_limite_de_envios_no_se_confunde_con_un_token_muerto() {
+        // Si los dos dijeran «avise al administrador», la alarma que importa se
+        // perdería entre las que se pasan solas.
+        let limite = rechazo(429).explicacion();
+        assert!(limite.contains("limitando"), "{limite}");
+        assert!(!limite.contains("credenciales"), "confundió un 429 con un 401: {limite}");
+    }
 }
 
 #[cfg(test)]

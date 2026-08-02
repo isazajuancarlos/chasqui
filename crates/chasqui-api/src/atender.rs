@@ -341,7 +341,10 @@ async fn enviar(
                 // No se pierde en el log: quien escribió se quedó sin respuesta,
                 // y eso lo tiene que ver una persona.
                 eprintln!("chasqui: falló el envío por {}: {e}", adaptador.canal());
-                encolar(servicio, conversacion_id, &Motivo::FalloTecnico(e.to_string()), ahora)
+                // A la cola va la explicación, no el error crudo: quien atiende
+                // no puede hacer nada con «code 190». El detalle técnico viaja
+                // debajo, para quien sí puede.
+                encolar(servicio, conversacion_id, &Motivo::FalloTecnico(e.explicacion()), ahora)
                     .await?;
                 *escalado_hecho = true;
             }

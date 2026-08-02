@@ -54,7 +54,16 @@ limpiar() {
         echo "cerrado: túnel abajo y base de prueba borrada."
     fi
 }
-trap limpiar EXIT INT TERM
+# EXIT limpia; INT y TERM solo SALEN, y al salir dispara EXIT.
+#
+# Estaban los tres en el mismo `trap` y no funcionaba: bash aplaza el manejador
+# hasta que termina el comando en primer plano, y el último de este guion es un
+# `tail -f` que no termina nunca. Resultado medido el 2026-08-02: un `kill` al
+# guion NO lo mataba y **el túnel público seguía arriba**, que es exactamente lo
+# que el comentario de `limpiar` dice que no puede pasar. Con `wait` (abajo) la
+# señal sí interrumpe, porque `wait` es interrumpible y `tail -f` no.
+trap limpiar EXIT
+trap 'exit 143' INT TERM
 
 echo "== 1. El binario =="
 BINARIO="$RAIZ/target/release/chasqui"
@@ -277,4 +286,7 @@ Ctrl-C para terminar. Registro del servidor:
 
 FIN
 
-tail -f "$TRABAJO/servidor.log"
+# En segundo plano y con `wait`: ver el comentario de los `trap`. Con
+# `tail -f` en primer plano, Ctrl-C y `kill` se quedaban pendientes.
+tail -f "$TRABAJO/servidor.log" &
+wait $!
