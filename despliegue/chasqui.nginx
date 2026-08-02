@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas
+# Copyright (c) 2026 Juan Carlos Isaza Arenas
+#
+# El proxy delante de Chasqui, en el servidor DEL CLIENTE.
+#
+# Meta EXIGE https con certificado válido para dar de alta un webhook, así que
+# esto no es opcional ni siquiera para probar. Sustituya CHATBOT.SUDOMINIO.COM y
+# ajuste el puerto si cambió CHASQUI_PUERTO.
+#
+# Si su servidor usa Caddy, Apache o Traefik en vez de nginx, lo que hace falta
+# es exactamente esto y no este archivo:
+#   1. terminar TLS;
+#   2. pasar la IP de origen en `X-Real-IP`;
+#   3. no tocar el cuerpo de la petición del webhook (ver abajo);
+#   4. un freno de intentos en POST /api/sesion.
+# Las cabeceras de seguridad las pone Chasqui por su cuenta, así que no se
+# quedará sin ellas por usar otro proxy.
+
+# Las zonas se definen UNA vez, en el bloque http {} (nginx.conf), no aquí:
+#   limit_req_zone $binary_remote_addr zone=chasqui_login:10m rate=5r/m;
+#   limit_req_zone $binary_remote_addr zone=chasqui_panel:10m rate=30r/s;
+
+# Las cabeceras del proxy van en `chasqui-proxy.conf`, que se instala al lado, y
+# NO con el `include proxy_params` que se ve en todos los ejemplos: ese archivo
+# lo trae el paquete de Debian y de Ubuntu, y no existe en Fedora, en RHEL ni en
+# la imagen oficial de nginx. La plantilla que lo usara fallaría al recargar en
+# la mitad de los servidores, y el mensaje —«open() /etc/nginx/proxy_params
+# failed»— no le dice a nadie que es cosa de la distribución.
+
+server {
+    listen 80;
+    server_name CHATBOT.SUDOMINIO.COM;
+    # Lo único que se sirve por http es el reto de certbot; lo demás, arriba.
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name CHATBOT.SUDOMINIO.COM;
+
+    ssl_certificate     /etc/letsencrypt/live/CHATBOT.SUDOMINIO.COM/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/CHATBOT.SUDOMINIO.COM/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # HSTS va AQUÍ y no en la aplicación: el TLS termina en este proxy, que es
+    # quien puede prometer que todo el dominio va por https. Actívela cuando lo
+    # esté; es difícil de revertir, porque el navegador lo recuerda.
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    server_tokens off;
+
+    # Un webhook de Meta es JSON pequeño y el panel no recibe subidas. Un tope
+    # bajo acota el abuso sin estorbar a nadie.
+    client_max_body_size 1m;
+
+    # El acceso al panel: 5 intentos por minuto y por IP. Chasqui además tiene su
+    # propio freno por cuenta —nginx solo frena una IP, y el ataque repartido
+    # entre muchas solo lo para la aplicación—, así que son dos capas distintas y
+    # no la misma dos veces.
+    location = /api/sesion {
+        limit_req zone=chasqui_login burst=3 nodelay;
+        proxy_pass http://127.0.0.1:8787;
+        include /etc/nginx/chasqui-proxy.conf;
+    }
+
+    # LOS WEBHOOKS VAN SIN FRENO, y es una decisión, no un olvido. Meta reintenta
+    # EN RÁFAGA cuando algo falla: un límite por minuto convertiría un pico
+    # normal —o la recuperación tras un corte— en mensajes de clientes perdidos,
+    # y Meta acabaría dando de baja la suscripción. El webhook ya está
+    # autenticado por firma HMAC sobre el cuerpo, que es una defensa más fuerte
+    # que contar peticiones.
+    #
+    # Y NO SE TOCA EL CUERPO. La firma se comprueba sobre los bytes que llegaron;
+    # cualquier cosa que reserialice o reescriba el JSON la rompe, y entonces
+    # NADA funciona sin que nada lo explique. Por eso aquí no hay `sub_filter` ni
+    # módulos que reescriban, y el buffering se deja como está.
+    location /webhook/ {
+        proxy_pass http://127.0.0.1:8787;
+        include /etc/nginx/chasqui-proxy.conf;
+    }
+
+    location / {
+        limit_req zone=chasqui_panel burst=60 nodelay;
+        proxy_pass http://127.0.0.1:8787;
+        include /etc/nginx/chasqui-proxy.conf;
+    }
+}

@@ -68,6 +68,71 @@ async fn estatico(uri: axum::http::Uri) -> Response {
     }
 }
 
+/// La política de contenido de la APLICACIÓN. Ver [`cabeceras_de_seguridad`].
+const CSP: &str = "default-src 'self'; \
+                   script-src 'self'; \
+                   style-src 'self' 'unsafe-inline'; \
+                   img-src 'self' data:; \
+                   font-src 'self'; \
+                   connect-src 'self'; \
+                   object-src 'none'; \
+                   base-uri 'self'; \
+                   form-action 'self'; \
+                   frame-ancestors 'none'";
+
+/// Cabeceras que van en TODA respuesta.
+///
+/// **Van en la aplicación y no solo en el nginx de la guía**, y esa es la
+/// decisión: Chasqui se instala en el servidor del cliente, y quien lo administre
+/// puede poner Caddy, Apache o su propio proxy. Si las cabeceras vivieran
+/// únicamente en nuestra plantilla, esa instalación se quedaría sin ninguna sin
+/// que nada lo dijera. Es la lección que ya costó una pasada en `informes`.
+///
+/// # La CSP, probada contra el Angular compilado y no copiada de una lista
+///
+/// - **`script-src 'self'`, sin `'unsafe-inline'`.** Es la que para un XSS. Para
+///   poder ponerla hubo que apagar `inlineCritical` en `angular.json`: emitía
+///   `<link media="print" onload="this.media='all'">`, y ese `onload` es un
+///   script en línea. Con esta directiva el navegador no lo ejecuta, la hoja se
+///   queda en `media="print"` y **el panel se ve sin estilos sin dar un error**.
+///   La prueba `el_index_empotrado_no_lleva_script_en_linea` falla si vuelve.
+/// - **`style-src` lleva `'unsafe-inline'` y no es pereza.** Angular Material
+///   escribe estilos en tiempo de ejecución y usa atributos `style="…"`; un
+///   nonce vale para elementos `<style>`, no para atributos. Inyectar CSS es
+///   mucho menos que ejecutar código.
+/// - **`frame-ancestors 'none'`**: nadie enmarca el panel. El día que exista el
+///   canal web, su widget SÍ tendrá que dejarse enmarcar por los dominios del
+///   cliente — por eso la CSP no se pisa si la respuesta ya trae la suya: esa
+///   ruta pondrá la que le toca, más permisiva a propósito y solo ahí.
+/// - **Nada de HSTS aquí**: el TLS termina en el proxy del cliente, que es quien
+///   puede prometerlo con conocimiento de causa. Va en la plantilla de nginx.
+async fn cabeceras_de_seguridad(
+    peticion: axum::extract::Request,
+    siguiente: axum::middleware::Next,
+) -> Response {
+    let mut r = siguiente.run(peticion).await;
+    let h = r.headers_mut();
+    // No reinterpretes el tipo que declaro.
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, header::HeaderValue::from_static("nosniff"));
+    // Sin esto, un sitio ajeno pone el panel en un iframe y engaña a quien
+    // atiende para que pulse donde no cree.
+    h.insert(header::X_FRAME_OPTIONS, header::HeaderValue::from_static("DENY"));
+    // La ruta de una conversación no viaja como `Referer` a terceros.
+    h.insert(
+        header::REFERRER_POLICY,
+        header::HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    // El panel no usa ninguna de estas, y apagarlas cuesta una línea.
+    h.insert(
+        header::HeaderName::from_static("permissions-policy"),
+        header::HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+    );
+    if !h.contains_key(header::CONTENT_SECURITY_POLICY) {
+        h.insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(CSP));
+    }
+    r
+}
+
 /// El router completo.
 pub fn router(servicio: Servicio) -> Router {
     let api = Router::new()
@@ -109,5 +174,40 @@ pub fn router(servicio: Servicio) -> Router {
         // Lo demás es la interfaz. Va la ÚLTIMA: así una ruta de la API nunca
         // queda tapada por el comodín.
         .fallback(estatico)
+        // Sobre TODO lo anterior, incluido el comodín y el webhook: una capa
+        // puesta sobre un subconjunto de rutas es una que alguien olvidará al
+        // añadir la siguiente.
+        .layer(axum::middleware::from_fn(cabeceras_de_seguridad))
         .with_state(servicio)
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    #[test]
+    fn el_index_empotrado_no_lleva_script_en_linea() {
+        // La salvaguarda del apagado de `inlineCritical`. Si vuelve a colarse un
+        // manejador en línea, la CSP lo bloquea y el panel se ve sin estilos SIN
+        // dar ningún error — el fallo que aparece el día de la demostración.
+        // Se lee el archivo EMPOTRADO y no el del disco: es lo que se sirve.
+        let indice = Interfaz::get("index.html").expect("la interfaz tiene que estar construida");
+        let html = String::from_utf8_lossy(&indice.data);
+
+        assert!(
+            !html.contains("onload="),
+            "el index empotrado trae un manejador en línea; la CSP lo bloqueará y el panel \
+             saldrá sin estilos. Compruebe `inlineCritical` en interfaz/angular.json"
+        );
+        assert!(
+            !html.contains("<style"),
+            "el index empotrado trae un <style> en línea; con style-src estricto dejaría de \
+             aplicarse"
+        );
+        assert!(
+            !html.contains("http://") && !html.contains("https://"),
+            "el index empotrado sale a un recurso externo: la CSP lo bloquea, y además rompe \
+             la promesa de que la instalación funciona sin salir a internet"
+        );
+    }
 }

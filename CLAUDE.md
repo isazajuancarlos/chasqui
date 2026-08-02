@@ -24,6 +24,17 @@ construir lo que a uno le parece.
   token de Meta, su clave del modelo y su catálogo. Eso hace que la verificación
   de negocio de Meta la pase él —tiene NIT— y que el coste por conversación lo
   vea y lo controle. El negocio es licencia, no reventa de infraestructura.
+- **Chasqui NO se instala en nuestro VPS.** Se vende por Workana y corre en el
+  servidor del cliente. Alojarlo nosotros rompe las dos cosas que sostienen el
+  precio: deja de ser cierto que las conversaciones no salen de su servidor, y
+  nos convierte en **encargados del tratamiento** de datos personales ajenos
+  (Ley 1581) —responsabilidad que hoy no tenemos y que nadie está pagando—.
+  La única puerta es un **servicio de cobro mensual** decidido a propósito, y
+  ese día hay que rehacer el modelo legal (contrato de encargo) antes que el
+  despliegue. *Escrito el 2026-08-01, después de proponer justo lo contrario:
+  el despliegue del producto son PLANTILLAS que se entregan, no una máquina
+  nuestra.* Para probar contra Meta está `./probar-con-meta.sh`, que levanta un
+  túnel efímero con base en `/tmp`.
 - **Nunca APIs no oficiales de WhatsApp** (Baileys, `whatsapp-web.js`). Meta
   cierra el número del cliente, y el proveedor que lo montó es quien responde.
   Se rechaza por escrito en la propuesta, no se calla.

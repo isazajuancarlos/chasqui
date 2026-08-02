@@ -8,3 +8,9 @@
 *.db
 *.sqlite*
 /datos/
+# Y los respaldos, que son la base entera con otro nombre.
+/respaldos/
+
+# Volcados de conversación del agente (hook de Stop). Van sin ancla para que
+# valgan en cualquier nivel; pueden llevar secretos pegados en una sesión.
+conversaciones/

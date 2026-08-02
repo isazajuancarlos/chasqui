@@ -32,11 +32,17 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 | Credenciales del cliente cifradas en reposo | **funciona** (`guaca`, sobre Quipu) |
 | Leer los datos del cliente (su API) | **funciona** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Panel para atender y configurar | **funciona** — Angular Material dentro del binario |
+| Respaldo en caliente, verificado | **funciona** — `VACUUM INTO`, y la copia se abre y se compara antes de darse por buena |
+| Despliegue en el servidor del cliente | **funciona** — plantillas de systemd y nginx, y [`despliegue/INSTALAR.md`](despliegue/INSTALAR.md) |
+| Canal web y aplicación móvil | pendiente — el diseño está en [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Flujos y toma de pedidos | pendiente |
 
 ## Cómo se instala y se pone a andar
 
-Un solo ejecutable y un archivo SQLite. Nada más.
+Un solo ejecutable y un archivo SQLite. Nada más. Para poner esto en el servidor
+de un cliente —usuario propio, systemd, TLS, respaldos— la guía de una página es
+[`despliegue/INSTALAR.md`](despliegue/INSTALAR.md); lo de aquí es la secuencia de
+configuración del negocio.
 
 ```bash
 export CHASQUI_FRASE="…"              # cifra las credenciales del cliente (32+)
@@ -88,6 +94,15 @@ conversaciones no salen del servidor del cliente.
 `chasqui olvidar --contacto 573001…` ejerce el derecho de supresión y deja la
 constancia; `chasqui purgar` borra lo que pasó del plazo (y se hace solo cada
 24 h mientras el servidor esté levantado).
+
+`chasqui respaldar <carpeta>` copia la base **en caliente**, sin parar el
+servicio, y **verifica la copia antes de darla por buena**: la abre, le pasa
+`integrity_check` y compara los recuentos con el origen. `chasqui restaurar
+<carpeta>` la devuelve, y se niega a pisar una instalación que ya tiene datos.
+Ojo con una cosa que es jurídica y no técnica: mientras un respaldo exista,
+`olvidar` no lo alcanza — el plazo que se conserven las copias es el plazo real
+en que una supresión queda completa, y va declarado en la política de
+tratamiento.
 
 Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
 `/webhook/messenger`.

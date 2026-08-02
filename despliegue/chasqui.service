@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas
+; Copyright (c) 2026 Juan Carlos Isaza Arenas
+;
+; Chasqui en el servidor DEL CLIENTE.
+;
+; Esto es una PLANTILLA: se copia a /etc/systemd/system/chasqui.service y se
+; ajustan las rutas si su instalación no usa las de la guía. No hay ningún
+; servidor nuestro en esta historia — sus conversaciones no salen de aquí, y esa
+; frase solo es cierta si el binario corre en su máquina.
+[Unit]
+Description=Chasqui — atención automatizada por WhatsApp, Instagram y Messenger
+After=network.target
+
+[Service]
+Type=simple
+User=chasqui
+Group=chasqui
+WorkingDirectory=/var/lib/chasqui
+
+; Aquí viven CHASQUI_FRASE (que cifra el token de Meta y la clave del modelo),
+; el secreto de la app y el token de verificación del webhook. El archivo va en
+; 0600 y propiedad de root: ver INSTALAR.md.
+EnvironmentFile=/etc/chasqui/chasqui.env
+ExecStart=/opt/chasqui/chasqui servir
+
+Restart=on-failure
+RestartSec=3
+
+; La base guarda conversaciones de terceros. Sin esto hereda el umask del
+; sistema y un día el archivo sale 0644, legible por cualquier cuenta de la
+; máquina, sin que nada lo diga.
+UMask=0077
+
+; Endurecimiento. El proceso habla con la API de Meta y con la API del cliente,
+; y escribe en un solo directorio; todo lo demás sobra.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chasqui
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

@@ -38,10 +38,28 @@ Lo que costaría cada uno:
   No hay adaptador nuevo: una app y una web son el mismo canal con otro cliente.
 - **Otro mensajero (Telegram, correo, SMS)** — un adaptador y ya.
 
-**Determinación**: no se construye todavía. Ninguna de las cinco peticiones pide
-un chat web, y construir para el caso que nadie pidió es la sobrecorrección de la
-directiva 19. Lo que sí estaba bien era dejar la interfaz puesta: cuando un
-cliente lo pida, es un archivo, no un rediseño.
+**Determinación (cambiada el 2026-08-01, decisión de Juan)**: el canal web **sí
+entra en el producto**. La versión anterior de este párrafo decía «no se
+construye todavía» porque ninguna de las cinco peticiones lo pide — y sigue sin
+pedirlo, conviene saberlo: esto es dirección de producto, no evidencia de
+mercado. Lo que la vuelve buena decisión de todos modos:
+
+**Es el único canal que funciona el primer día.** Los tres de Meta dependen de
+una verificación de negocio que no controla nadie y que fija el plazo de entrega
+(es el riesgo número uno de `RIESGOS.md`). Un chat en la web del cliente no
+necesita ni app de Meta, ni NIT verificado, ni token que caduque: se instala y
+atiende. Eso convierte «le entrego cuando Meta le apruebe» en «le entrego ya, y
+WhatsApp entra cuando le aprueben». Además no tiene coste por conversación.
+
+Y **la web y la app son un solo trabajo**: una API pública de conversación, y el
+`<script>` como su PRIMER consumidor — el mismo patrón que el panel, por la
+misma razón. Una app móvil del cliente habla esa API con su clave y no hay nada
+nuevo que construir.
+
+Lo que sí hay que resolver, y no lo resuelve el trait: el emisor es un navegador
+anónimo, así que no hay firma que valga, no hay número de teléfono que use de
+identidad, y la respuesta no se «envía» a una API ajena sino que hay que
+empujarla al que está esperando. Son tres decisiones propias de este canal.
 
 ## Costura 2 — Los datos del cliente: que el bot responda con **su** información
 

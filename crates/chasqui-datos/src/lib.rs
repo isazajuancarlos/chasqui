@@ -20,6 +20,7 @@ pub mod documento;
 pub mod cuenta;
 pub mod escalado;
 pub mod mensaje;
+pub mod respaldo;
 pub mod retencion;
 pub mod secreto;
 pub mod usuario;

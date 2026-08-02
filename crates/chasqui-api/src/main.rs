@@ -61,6 +61,19 @@ enum Orden {
         #[arg(long)]
         contacto: String,
     },
+    /// Copia la base EN CALIENTE a una carpeta nueva, y verifica la copia.
+    ///
+    /// No hace falta parar el servicio. La copia se comprueba antes de darse por
+    /// buena: si no cuadra con el origen, esta orden sale con error y no deja
+    /// una carpeta que parezca un respaldo.
+    Respaldar { destino: String },
+    /// Devuelve un respaldo a su sitio. **Pare el servicio antes.**
+    Restaurar {
+        origen: String,
+        /// Para pisar una base que ya tiene datos.
+        #[arg(long)]
+        forzar: bool,
+    },
     /// Las personas que entran al panel.
     #[command(subcommand)]
     Usuario(OrdenUsuario),
@@ -213,6 +226,50 @@ async fn main() -> ExitCode {
 async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
     let argumentos = Argumentos::parse();
     let config = Config::del_entorno()?;
+
+    // El respaldo y la restauración NO pasan por `chasqui_datos::abrir`, y no es
+    // estilo: `abrir` crea la base si falta y le aplica las migraciones. Al
+    // restaurar eso escribiría en el archivo que está a punto de reemplazarse, y
+    // al respaldar convertiría «la base no está donde el servicio la tiene» en
+    // una carpeta con cero filas que pasa por respaldo bueno (directiva 20).
+    //
+    // La configuración sí se lee entera y con su validación: se respalda lo que
+    // el servicio usa DE VERDAD, no lo que alguien creía.
+    match &argumentos.orden {
+        Some(Orden::Respaldar { destino }) => {
+            let resumen =
+                chasqui_datos::respaldo::respaldar(&config.url_bd, std::path::Path::new(destino))
+                    .await?;
+            println!("Respaldado en «{destino}»: {} filas.", resumen.total_filas());
+            for (tabla, n) in &resumen.filas {
+                println!("  {tabla:<16} {n}");
+            }
+            println!("\nLa copia se abrió y se comprobó: integridad y recuentos por tabla.");
+            println!(
+                "CONTIENE DATOS PERSONALES. El plazo que la conserve tiene que estar en la \
+                 política de tratamiento: mientras exista, «olvidar» no la alcanza."
+            );
+            return Ok(());
+        }
+        Some(Orden::Restaurar { origen, forzar }) => {
+            let resumen = chasqui_datos::respaldo::restaurar(
+                std::path::Path::new(origen),
+                &config.url_bd,
+                *forzar,
+            )
+            .await?;
+            // La preposición importa: «respaldado EN» y «restaurado DESDE» son
+            // direcciones opuestas, y quien lee esto lo lee el peor día.
+            println!(
+                "Restaurado desde «{origen}» a «{}»: {} filas.",
+                config.url_bd,
+                resumen.total_filas()
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
+
     let pool = chasqui_datos::abrir(&config.url_bd).await?;
 
     match argumentos.orden.unwrap_or(Orden::Servir) {
@@ -474,6 +531,12 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
                 println!("#{}  {}  {}  {}  {}", p.id, p.creado_en, p.contacto, p.motivo, p.detalle);
             }
             Ok(())
+        }
+
+        // Atendidas arriba, antes de abrir la base. El compilador exige el brazo
+        // y eso es lo que hace que añadir una orden nueva no se pueda olvidar.
+        Orden::Respaldar { .. } | Orden::Restaurar { .. } => {
+            unreachable!("el respaldo se atiende antes de abrir la base")
         }
     }
 }

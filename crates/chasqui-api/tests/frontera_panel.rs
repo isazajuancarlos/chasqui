@@ -207,6 +207,53 @@ async fn el_panel_se_sirve_desde_el_binario() {
 }
 
 #[tokio::test]
+async fn toda_respuesta_del_binario_lleva_las_cabeceras_de_seguridad() {
+    // Van en la APLICACIÓN y no solo en el nginx de la guía: Chasqui se instala
+    // en el servidor del cliente y quien lo administre puede poner otro proxy.
+    // Se comprueba en las TRES clases de respuesta —la interfaz, la API y el
+    // webhook— porque una capa puesta sobre un subconjunto de rutas es la que
+    // alguien olvida al añadir la siguiente.
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("cabeceras", &graph).await;
+    let cliente = reqwest::Client::new();
+
+    for ruta in ["/", "/api/escalados", "/webhook/whatsapp", "/salud"] {
+        let r = cliente
+            .get(format!("{}{ruta}", instancia.base))
+            .send()
+            .await
+            .unwrap();
+        let h = r.headers();
+
+        assert_eq!(
+            h.get("x-content-type-options").map(|v| v.to_str().unwrap()),
+            Some("nosniff"),
+            "«{ruta}» salió sin nosniff"
+        );
+        assert_eq!(
+            h.get("x-frame-options").map(|v| v.to_str().unwrap()),
+            Some("DENY"),
+            "«{ruta}» se puede enmarcar"
+        );
+        assert!(h.contains_key("referrer-policy"), "«{ruta}» sin referrer-policy");
+        assert!(h.contains_key("permissions-policy"), "«{ruta}» sin permissions-policy");
+
+        let csp = h
+            .get("content-security-policy")
+            .unwrap_or_else(|| panic!("«{ruta}» salió sin CSP"))
+            .to_str()
+            .unwrap();
+        // Lo que de verdad para un XSS. Una CSP presente pero con
+        // `'unsafe-inline'` en los scripts sería verde y no defendería nada.
+        assert!(
+            csp.contains("script-src 'self'") && !csp.contains("script-src 'self' 'unsafe-inline'"),
+            "la CSP de «{ruta}» deja ejecutar script en línea: {csp}"
+        );
+        assert!(csp.contains("frame-ancestors 'none'"), "«{ruta}»: {csp}");
+    }
+}
+
+#[tokio::test]
 async fn sin_sesion_la_api_no_contesta_nada() {
     let (graph, _) = graph_falso().await;
     let instancia = instancia("sin-sesion", &graph).await;
