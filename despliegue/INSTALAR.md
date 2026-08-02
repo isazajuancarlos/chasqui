@@ -112,8 +112,13 @@ sudo -u chasqui env $(sudo cat /etc/chasqui/chasqui.env | grep -v '^#' | xargs) 
 Y en el sitio, antes de `</body>`:
 
 ```html
-<script src="https://chat.suempresa.com/web/widget.js" async></script>
+<script src="https://chat.suempresa.com/web/widget.js" async
+        data-titulo="Escríbanos" data-tema="claro"></script>
 ```
+
+`data-tema` admite `claro` (por defecto), `oscuro` o `auto`. Se elige según el
+sitio y NO según el sistema del visitante: con `auto`, alguien con el ordenador
+en modo oscuro vería una caja negra sobre una página clara.
 
 Tres cosas que hacen que esto funcione o no:
 

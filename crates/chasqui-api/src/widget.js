@@ -18,6 +18,14 @@
 //    Es lo que hace que quien vuelve mañana encuentre su hilo. Y si el navegador
 //    lo bloquea (modo privado estricto), el chat sigue funcionando: se queda en
 //    memoria y dura lo que dure la pestaña, en vez de no arrancar.
+// 4. EL TEMA POR DEFECTO ES CLARO, y no el del sistema del visitante. Esto se vio
+//    mirándolo en un navegador de verdad y no en ninguna prueba: con el sistema
+//    en oscuro, el chat salía negro encima de una página clara. El widget vive
+//    DENTRO del diseño de otro, así que quien manda es el sitio, no el sistema
+//    operativo de quien lo visita. El cliente pide lo que quiera:
+//      data-tema="claro"  (por defecto)
+//      data-tema="oscuro"
+//      data-tema="auto"   (sigue al sistema, para un sitio que ya lo hace)
 
 (function () {
   'use strict';
@@ -39,8 +47,25 @@
     try { localStorage.setItem(LLAVE, v); } catch (e) { /* queda en memoria */ }
   }
 
+  // Los temas admitidos. Cerrado a propósito: un valor inventado no se degrada
+  // a nada raro, se queda en el claro, que es el que no rompe ningún sitio.
+  var TEMAS = ['claro', 'oscuro', 'auto'];
+  var tema = guion.getAttribute('data-tema');
+  if (TEMAS.indexOf(tema) === -1) tema = 'claro';
+
+  function oscuro(prefijo) {
+    return [
+      prefijo + '.panel{background:#0d1117;color:#e6edf3}',
+      prefijo + '.hilo{background:#0d1117}',
+      prefijo + '.bot{background:#161b22;border-color:#30363d}',
+      prefijo + '.pie{background:#0d1117;border-color:#30363d}',
+      prefijo + '.pie input{background:#161b22;border-color:#30363d;color:#e6edf3}',
+    ].join('\n');
+  }
+
   var anfitrion = document.createElement('div');
   anfitrion.setAttribute('data-chasqui', '');
+  anfitrion.setAttribute('data-tema', tema);
   var raiz = anfitrion.attachShadow ? anfitrion.attachShadow({ mode: 'open' }) : null;
   if (!raiz) return; // Navegador sin shadow DOM: mejor nada que romperle el sitio.
 
@@ -73,12 +98,13 @@
     '.pie button{padding:9px 14px;border:0;border-radius:8px;background:#1f6feb;color:#fff;',
     '  cursor:pointer;font-size:14px}',
     '.pie button[disabled]{opacity:.5;cursor:default}',
+    // El tema oscuro, escrito una vez y aplicado en dos sitios: cuando el
+    // cliente lo pide a secas, y cuando pide «auto» y el sistema está en oscuro.
+    // Duplicar estas reglas es garantizar que un día se cambien en una sola.
+    oscuro(':host([data-tema="oscuro"]) '),
     '@media (prefers-color-scheme:dark){',
-    '  .panel{background:#0d1117;color:#e6edf3}',
-    '  .hilo{background:#0d1117}',
-    '  .bot{background:#161b22;border-color:#30363d}',
-    '  .pie{background:#0d1117;border-color:#30363d}',
-    '  .pie input{background:#161b22;border-color:#30363d;color:#e6edf3}}',
+    oscuro(':host([data-tema="auto"]) '),
+    '}',
     '</style>',
     '<button class="boton" part="boton" aria-label="Abrir el chat">&#128172;</button>',
     '<section class="panel" role="dialog" aria-label="Chat">',

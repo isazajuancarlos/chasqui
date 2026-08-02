@@ -115,13 +115,19 @@ Y en su sitio, antes de `</body>`:
 
 ```html
 <script src="https://chat.acme.com/web/widget.js" async
-        data-titulo="Escríbanos"></script>
+        data-titulo="Escríbanos" data-tema="claro"></script>
 ```
 
 Ya está: el chat aparece abajo a la derecha. Va dentro de un *shadow DOM*, así
 que ni el CSS del sitio se mete en el chat ni el del chat en el sitio, y no
 descarga nada de internet — la promesa de que la instalación no sale a ninguna
 parte sigue siendo cierta.
+
+**El tema lo manda el sitio, no el sistema del visitante.** `data-tema` admite
+`claro` (por defecto), `oscuro`, y `auto` para un sitio que ya sigue al sistema.
+El defecto es claro porque el chat vive dentro del diseño de otro: seguir al
+sistema operativo de quien visita ponía una caja negra encima de una página
+clara, y eso se vio mirándolo en un navegador — no lo dijo ninguna prueba.
 
 Debajo es **el mismo bot**: el aviso de privacidad, las preguntas frecuentes, los
 documentos, los flujos, el escalado a una persona y la retención valen igual, sin

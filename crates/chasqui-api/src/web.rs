@@ -435,6 +435,25 @@ mod pruebas {
     }
 
     #[test]
+    fn el_widget_no_se_pone_oscuro_por_su_cuenta() {
+        // Se vio mirándolo en un navegador de verdad y en ninguna prueba: con el
+        // sistema del VISITANTE en oscuro, el chat salía negro encima de una
+        // página clara. El widget vive dentro del diseño de otro, así que manda
+        // el sitio. Esta prueba fija que el tema oscuro solo salga cuando el
+        // cliente lo pide — a secas, o con «auto».
+        let widget = include_str!("widget.js");
+        assert!(
+            !widget.contains("@media (prefers-color-scheme:dark){',\n    '  .panel"),
+            "el tema oscuro volvió a aplicarse sin que el cliente lo pida"
+        );
+        assert!(widget.contains("data-tema"), "el cliente no puede elegir el tema");
+        assert!(
+            widget.contains("if (TEMAS.indexOf(tema) === -1) tema = 'claro'"),
+            "un tema inventado tiene que caer en el claro, que es el que no rompe ningún sitio"
+        );
+    }
+
+    #[test]
     fn las_cabeceras_permitidas_cubren_las_que_el_widget_manda() {
         // El widget y esta lista viven en archivos distintos y en lenguajes
         // distintos. Si divergen, el navegador bloquea la petición y en el
