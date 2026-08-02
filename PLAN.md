@@ -197,12 +197,13 @@ lleva el [`README.md`](README.md), y por encima de los dos manda el repositorio.
 |---|---|
 | Canal WhatsApp | **hecho** — webhook firmado, envío e idempotencia |
 | Instagram y Messenger | **hecho** — un solo adaptador, sin bucle de eco |
-| Base de conocimiento y respuestas | **hecho** por disparadores; falta el modelo de lenguaje |
+| Base de conocimiento y respuestas | **hecho** por disparadores, y **con los documentos del cliente**: el modelo es configurable y no inventa lo que no está en ellos |
 | Escalado a una persona | **hecho** — cola por antigüedad, y el bot se calla |
-| Aviso de privacidad y retención | plantillas en `legal/`; el aviso ya sale en cada conversación y sin él el bot no atiende. La retención y la supresión, pendientes |
+| Aviso de privacidad y retención | **hecho** — plantillas en `legal/`, el aviso sale en cada conversación y sin él el bot no atiende; plazo configurable, purga diaria y derecho de supresión |
 | Credenciales del cliente cifradas en reposo | **hecho** (`guaca`, sobre Quipu) |
+| Leer los datos del cliente (su API) | **hecho** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
+| Panel para atender y configurar | **hecho** — Angular Material dentro del binario |
 | Flujos y toma de pedidos | pendiente |
-| Panel de configuración | pendiente — hoy se administra por la línea de órdenes |
 
 Y una costura que este plan no separaba y que hay que separar, porque de ella
 depende media venta: **integrarse con los sistemas del cliente no es lo mismo que

@@ -37,12 +37,110 @@ construir lo que a uno le parece.
   implementación. WhatsApp, Instagram y Messenger comparten consola y modelo de
   webhook en Meta: los tres son un adaptador más, no triple trabajo. Ya hay una
   petición que los pide.
+- **Ni una columna `cliente_id` en ninguna tabla.** El aislamiento entre clientes
+  es que son máquinas distintas, y esa es justo la frase que se le vende. Una
+  base por instancia; el día que aparezca esa columna, la frase deja de ser
+  cierta.
+- **Un secreto ausente no tiene valor por defecto: el binario no arranca**
+  (directiva 20). Sin `CHASQUI_SECRETO_APP` el servidor acepta webhooks
+  falsificados y *funciona*, que es peor que caerse. Lo mismo con el aviso de
+  privacidad y el plazo de retención, que los tiene que decidir el responsable
+  del tratamiento: sin ellos no se atiende y no se borra, y se dice.
 
 ## Stack
 
 Rust (`axum` + `SQLx`/SQLite) con Angular Material embebido en el binario
 (directiva 26). Un ejecutable en el servidor del cliente, una base por instancia.
+Angular 22 + `@angular/material`; **PrimeNG prohibido** (ver general).
+
+## Construir y probar
+
+```bash
+# La interfaz primero: es un artefacto de npm que NO viaja en el repositorio, y
+# `build.rs` la empotra desde interfaz/dist/interfaz/browser.
+cd interfaz && npm install && npm run build && cd ..
+
+cargo build --release           # el binario `chasqui`, con el panel dentro
+cargo test --workspace --no-fail-fast
+```
+
+- **`--no-fail-fast` no es opcional**: sin él, `cargo test` aborta en el primer
+  binario que falla y las pruebas de los otros crates NO llegan a ejecutarse —
+  un rojo que además esconde el estado del resto.
+- Una sola prueba:
+  `cargo test -p chasqui-api --test frontera_meta -- <nombre> --nocapture`.
+  Por crate: `cargo test -p chasqui-dominio` (rápido, no toca disco ni red).
+- La suite entera tarda **un par de minutos en debug y no está colgada**: casi
+  todo es `chasqui-datos`, donde cada contraseña pasa por Argon2 y en debug eso
+  va más de diez veces más lento que en release.
+- Si se cambia la interfaz **hay que reconstruirla y volver a compilar**: lo
+  empotrado es `dist/`, no `src/`. `build.rs` observa esa carpeta, y si no está
+  empotra una página que dice qué ejecutar — nunca una en blanco.
+- `./probar-con-meta.sh` levanta el binario tras un túnel público de Cloudflare y
+  comprueba el apretón de manos con la consola de Meta (alta del webhook, reto,
+  firma HMAC sobreviviendo a un proxy). Crea su propia base temporal y la borra.
+  Lo que falta después está en `docs/META.md`.
+- `interfaz/npm test` está cableado a vitest pero **hoy no hay ni un `.spec.ts`**:
+  correrlo da cero pruebas, que no es lo mismo que verde.
+
+## Arquitectura
+
+Tres crates, y la frontera entre ellos es la decisión de diseño principal:
+
+| Crate | Qué lleva | Qué NO puede entrar |
+|---|---|---|
+| `chasqui-dominio` | los tipos y **las reglas**: cuándo sale el aviso, cuándo calla el bot, cuándo se llama a una persona | base de datos, red |
+| `chasqui-datos` | lo que toca el disco: SQLite, migraciones empotradas, bóveda de credenciales | decisiones sobre qué se responde |
+| `chasqui-api` | `axum` + la CLI + el panel empotrado | lógica de atención |
+
+**El camino de un mensaje** (`chasqui-api/src/atender.rs`): buscar la cuenta →
+registrar el entrante (ANTES de responder: es lo que hace que el reintento de
+Meta no conteste dos veces) → `chasqui_dominio::atender` decide → el adaptador
+envía. Si aparece un `if` sobre el contenido del mensaje en `atender.rs`, está en
+el sitio equivocado: esa regla va al dominio, donde se prueba sin levantar nada.
+
+**Canales** (`chasqui-api/src/canales/`): el rasgo `AdaptadorCanal` solo traduce
+el cuerpo del webhook a `MensajeEntrante` y envía texto. Dos implementaciones
+cubren los tres canales — `whatsapp.rs` y `meta_mensajeria.rs` (Instagram y
+Messenger comparten forma). Los tres se montan siempre en `Servicio::nuevo`: que
+una cuenta exista es cosa de la base, no del servidor.
+
+**El panel es el PRIMER consumidor de `/api`, no una pantalla con acceso
+privilegiado a la base** (`docs/INTEGRACION.md`, costura 4). Es lo que convierte
+«integrar el panel con la aplicación del cliente» en darle un token. Toda ruta de
+`/api` exige sesión por el extractor `Agente` en la firma del manejador, así que
+**una ruta nueva sin sesión no compila**. En `lib.rs::router`, el `fallback`
+estático va el ÚLTIMO o taparía la API; y cae a `index.html` para que recargar
+`/conversacion/7` en el navegador no dé 404.
+
+**Sesión**: `guaca::sesion`, con el secreto derivado de `CHASQUI_FRASE` por
+HMAC-SHA256 con etiqueta de dominio — no es un defecto inventado, es un cálculo
+determinista sobre un secreto que ya es obligatorio. Cookie `HttpOnly`, `Secure`
+salvo `CHASQUI_SIN_TLS=1`.
+
+**Cifrado en reposo** de las credenciales del cliente: `guaca`, fijado en
+`Cargo.toml` **por commit inmutable y no por tag**, y es el mismo `rev` que usa
+`medico`.
+
+**Migraciones**: `crates/chasqui-datos/migraciones/*.sql`, empotradas con
+`sqlx::migrate!` y aplicadas al abrir. Hacen falta las features `migrate` **y**
+`macros` de SQLx: con solo `migrate` compila el motor y no el macro, y el error
+no lo dice.
+
+**La CLI y el servidor son el mismo binario** (`chasqui-api/src/main.rs`):
+`servir`, `cuenta`, `ajuste`, `conocimiento`, `consulta`, `documento`, `modelo`,
+`usuario`, `escalados`, `purgar`, `olvidar`. Las credenciales entran por la
+entrada estándar, nunca por argumento: los argumentos quedan en el historial y en
+`ps`. El README lleva la secuencia completa de instalación.
+
+**Las pruebas que valen son las que cruzan la frontera** (directiva 28):
+`tests/frontera_meta.rs` y `tests/frontera_panel.rs` arrancan **el binario de
+verdad**, le dan de alta cuentas por su línea de órdenes y le hablan por HTTP con
+un sustituto de la API Graph en localhost. Todo lo demás va de estructura a
+estructura y mide el códec, no el producto.
 
 ## Estado
 
-Nada implementado todavía. `PLAN.md` es el plan, no un informe de avance.
+Construido el 2026-08-01. **El avance real lo lleva el `README.md`**; `PLAN.md`
+es el plan y `docs/META.md` lo que falta para probar contra Meta de verdad. Falta
+del MVP: flujos y toma de pedidos.
