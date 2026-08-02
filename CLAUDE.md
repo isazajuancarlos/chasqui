@@ -1,5 +1,12 @@
 # Chasqui
 
+> **Configuración general: `~/.claude/CLAUDE.md`** — reglas que no se rompen,
+> las directivas numeradas y las máquinas montadas. Se carga en toda sesión y
+> **no se copia aquí**; este archivo lleva SOLO lo propio de Chasqui.
+>
+> **Esta instancia se arranca desde esta carpeta**: `cd /mnt/data/chasqui && claude`.
+> Desde el 2026-08-01 no se trabajan varios proyectos desde una sola sesión.
+
 Plataforma de atención automatizada por WhatsApp, Instagram y Messenger.
 **Proyecto de VENTA: repositorio privado, licencia propietaria** (directiva 10).
 
