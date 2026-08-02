@@ -242,10 +242,13 @@ Esto es el objetivo de todo el ejercicio: **traer de vuelta lo que la
 documentación no dice.**
 
 - ~~El **cuerpo exacto** que mandó Meta~~ — **hecho el 2026-08-02**, ver abajo.
-- Qué manda al escribir una **nota de voz**, una **foto** y una **ubicación**:
-  hoy se marcan «no soportado» y van a una persona, pero conviene ver el nombre
-  real del tipo.
-- Cuánto tarda el envío de verdad.
+- ~~Qué manda al escribir una **nota de voz** y una **foto**~~ — **hecho**: los
+  tipos reales son `audio` e `image`, y sí coinciden con la documentación (que no
+  era de dar por hecho, viendo que los campos del cuerpo no coincidían). Falta
+  `location`.
+- ~~Cuánto tarda el envío de verdad~~ — **medido**: unos 4 s del mensaje entrante
+  a la primera respuesta en el móvil, y 0,64 s entre el aviso de privacidad y la
+  respuesta (el segundo envío ya no paga el webhook).
 - Qué devuelve Meta cuando **el token caduca** a las 24 h.
 
 Con eso se cierra esta tarea. Sin eso, «funciona» quiere decir «funciona contra
@@ -286,6 +289,19 @@ Meta manda `type` **después** de `text`, y la documentación lo pone antes.
 
 También se vio que `account_context_type` vale `non_paid_messaging` — el número
 de prueba no cobra conversación, así que **lo del cobro sigue sin medirse**.
+
+### 5.2 Voz y foto contra WhatsApp real, 2026-08-02
+
+| Se mandó | Tipo que dice Meta | Qué hizo Chasqui |
+|---|---|---|
+| Nota de voz de 7 s | `audio` | `NoSoportado("audio")`, **escalado** (`no_soportado`/`audio`) y respuesta pasando a una persona, en 4 s |
+| Foto | `image` | `NoSoportado("image")`, registrado, **y ni una palabra** |
+
+**Que la foto no obtuviera respuesta es el acierto, no el fallo.** La
+conversación ya estaba en `esperando_humano` por la nota de voz, y la regla del
+dominio es que ahí el bot calla: contestar sería hablar por encima de la persona
+que ya tiene el caso. Tampoco se duplicó el escalado — hay uno, no dos. Es la
+primera vez que esa regla se ve funcionando fuera de las pruebas.
 
 ---
 
