@@ -40,10 +40,16 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 
 ## Cómo se instala y se pone a andar
 
-Un solo ejecutable y un archivo SQLite. Nada más. Para poner esto en el servidor
-de un cliente —usuario propio, systemd, TLS, respaldos— la guía de una página es
-[`despliegue/INSTALAR.md`](despliegue/INSTALAR.md); lo de aquí es la secuencia de
-configuración del negocio.
+Un solo ejecutable y un archivo SQLite. Nada más. Hay tres guías, y cada una es
+para alguien distinto:
+
+| Guía | Para quién |
+|---|---|
+| [`docs/MANUAL-CLIENTE-META.md`](docs/MANUAL-CLIENTE-META.md) | **El cliente**, que pelea con la consola de Meta y nos entrega cuatro datos |
+| [`docs/MANUAL-INSTALACION.md`](docs/MANUAL-INSTALACION.md) | **Quien instala**: el orden real, las comprobaciones y las cuatro cosas que fallan |
+| [`despliegue/INSTALAR.md`](despliegue/INSTALAR.md) | El servidor: usuario propio, systemd, TLS, respaldos |
+
+Lo de aquí abajo es la secuencia de configuración del negocio, en corto.
 
 ```bash
 export CHASQUI_FRASE="…"              # cifra las credenciales del cliente (32+)
