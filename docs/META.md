@@ -1,10 +1,30 @@
 <!-- SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas -->
 # Probar Chasqui contra Meta de verdad
 
+> ## HECHO — 2026-08-02, 11:10
+>
+> **Un WhatsApp de verdad entró y Chasqui contestó de verdad.** Desde el móvil de
+> Juan al número de prueba `+1 555 670 5915`, con el binario de release detrás de
+> un túnel de Cloudflare:
+>
+> ```
+> 16:10:23  →  entrante   «hola»
+> 16:10:26  ←  saliente   el aviso de privacidad
+> 16:10:27  ←  saliente   «Hola. Esto es una prueba de Chasqui y funciona.»
+> ```
+>
+> Los dos salientes traen `wamid` de acuse de Meta, así que no es que se
+> intentaran: se entregaron. En la base quedaron 1 conversación y 3 mensajes, y
+> la conversación en estado `bot`.
+>
+> Esto es lo que este documento existía para conseguir. **Lo de abajo se conserva
+> como el manual del camino**, porque el cliente lo va a recorrer entero con su
+> propio NIT y su propia app.
+
 **El riesgo número uno antes de vender nada.** Todas las pruebas del repositorio
-—262— hablan con un Meta de mentira en localhost. Miden el cableado y el códec,
-no el producto contra el mundo. Hasta que un mensaje de WhatsApp real entre y
-salga, no se compromete una fecha de entrega con nadie.
+hablan con un Meta de mentira en localhost. Miden el cableado y el códec, no el
+producto contra el mundo. Hasta que un mensaje de WhatsApp real entre y salga, no
+se compromete una fecha de entrega con nadie.
 
 No hace falta ni cliente ni dinero: la consola de desarrollador de Meta da un
 número de prueba gratuito. **Sí hace falta la verificación del negocio**, y eso
@@ -175,6 +195,32 @@ verificar», mire el registro del servidor: dice exactamente qué pasó.
 
 Después, **suscríbase al campo `messages`**. Sin eso el webhook queda dado de alta
 y no llega nada — y no hay ningún error que lo diga.
+
+**Y eso todavía no basta. Son DOS suscripciones, no una** (medido el 2026-08-02,
+y costó dos mensajes de prueba perdidos):
+
+1. la del **campo** `messages`, que se pone en la consola — hecha eso, la consola
+   ya enseña los mensajes en «Revisa los webhooks de prueba»;
+2. la de **la app a la cuenta de WhatsApp Business**, que la consola **NO hace**
+   y no menciona en ninguna pantalla.
+
+Sin la segunda, Meta recibe el mensaje, lo guarda, lo enseña en su propia
+consola… y no lo entrega a nadie. El síntoma es exactamente «no llega nada» con
+todo en verde, que es el peor de los diagnósticos. Se comprueba y se arregla por
+la API, con el token del número de prueba:
+
+```bash
+# Quién está suscrito HOY. Si solo sale «WA DevX Webhook Events 1P App»,
+# que es de Meta, su app no está y por eso no le llega nada.
+curl -s -H "Authorization: Bearer $CHASQUI_TOKEN_META" \
+  "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps"
+
+curl -s -X POST -H "Authorization: Bearer $CHASQUI_TOKEN_META" \
+  "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps"
+```
+
+**No se da por buena la respuesta `{"success":true}`**: se vuelve a leer la lista
+y se comprueba que la app aparece por su nombre.
 
 ### 4. Escribirle al número de prueba
 

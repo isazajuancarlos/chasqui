@@ -169,6 +169,13 @@ configura es código tras una bandera que nadie enciende. El pedido armado sale
 hoy por el panel (`GET /api/pedidos`, `chasqui pedidos`) y llamando a una
 persona.
 
-Lo que falta de verdad es **probarlo contra Meta** con la cuenta de Juan (#307):
-el apretón de manos ya se probó por internet real con túnel de Cloudflare, pero
-nadie le ha escrito «hola» a un número de WhatsApp de verdad.
+**Probado contra Meta el 2026-08-02** (cierra #307): un «hola» escrito a mano
+desde un móvil al número de la Cloud API entró por el webhook y Chasqui contestó
+—aviso de privacidad primero, respuesta después—, las dos con acuse de Meta. El
+camino completo y sus tres paredes están en `docs/META.md`; la del final es la
+que no avisa: **la consola suscribe el CAMPO `messages` pero NO suscribe la app a
+la cuenta de WhatsApp Business**, y sin eso Meta recibe el mensaje, lo enseña en
+su propia consola y no lo entrega a nadie.
+
+Lo que sigue sin medirse es el **coste por conversación**: el número de prueba va
+como `non_paid_messaging`.

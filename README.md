@@ -201,6 +201,13 @@ Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
 
 ## Qué se probó, y contra qué
 
+**Contra WhatsApp de verdad, el 2026-08-02.** Un mensaje escrito a mano desde un
+teléfono al número de la Cloud API entró por el webhook y Chasqui contestó: el
+aviso de privacidad primero y la respuesta después, las dos con acuse de Meta.
+Se midieron cuatro segundos entre el «hola» y la primera respuesta. Lo que costó
+llegar ahí, paso a paso y con las tres paredes que hay por el camino, está en
+[`docs/META.md`](docs/META.md).
+
 Además de las pruebas de cada pieza, hay una que **arranca el binario de verdad,
 le da de alta una cuenta por su línea de órdenes y le manda un webhook firmado
 como lo firma Meta**, con un sustituto de la API Graph en localhost
