@@ -253,6 +253,74 @@ mod pruebas {
         assert_eq!(m[0].momento.timestamp(), 1785000000);
     }
 
+    /// El cuerpo **REAL** que mandó Meta el 2026-08-02, capturado en la consola
+    /// con un WhatsApp de verdad escribiéndole al número de prueba.
+    ///
+    /// La forma es literal; los valores que identifican a una persona están
+    /// cambiados —nombre, teléfono e identificadores—, porque lo que esta prueba
+    /// tiene que fijar es la FORMA, y un fixture no es sitio para el número de
+    /// nadie.
+    ///
+    /// Trae **seis campos que la documentación no menciona**: `profile.username`,
+    /// `contacts[].user_id`, `contacts[].country_code`, `messages[].from_user_id`,
+    /// `messages[].from_logical_id` e `internal_1p_only_data`. Ninguno rompe el
+    /// traductor porque se recorre `Value` campo a campo en vez de deserializar a
+    /// una estructura cerrada — y eso, que parecía una decisión de comodidad,
+    /// resulta ser la que sobrevive a que Meta añada cosas sin avisar.
+    fn webhook_real_de_meta() -> Value {
+        json!({
+          "object": "whatsapp_business_account",
+          "entry": [{
+            "id": "1903916413906447",
+            "changes": [{
+              "field": "messages",
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "15556705915",
+                  "phone_number_id": "1221911424344798"
+                },
+                "contacts": [{
+                  "profile": { "name": "Ana Prueba", "username": "anaprueba" },
+                  "wa_id": "573001112233",
+                  "user_id": "CO.0000000000000000",
+                  "country_code": "CO"
+                }],
+                "messages": [{
+                  "from": "573001112233",
+                  "from_user_id": "CO.0000000000000000",
+                  "id": "wamid.HBgMNTczMDAxMTEyMjMzFQIAEhggQUMzM0ZGNzA1RENEQzJGOEY1NEM0NjI5Q0MxODkyMUUA",
+                  "timestamp": "1785685856",
+                  "text": { "body": "Respuesta de prueba" },
+                  "from_logical_id": "63363669340208",
+                  "type": "text",
+                  "internal_1p_only_data": {
+                    "account_context": {
+                      "waac_id": "1762499561569942",
+                      "cs_id": "1221911424344798",
+                      "account_context_type": "non_paid_messaging"
+                    }
+                  }
+                }]
+              }
+            }]
+          }]
+        })
+    }
+
+    #[test]
+    fn traduce_el_cuerpo_real_de_meta_con_sus_campos_no_documentados() {
+        let m = adaptador().entrantes(&webhook_real_de_meta()).unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].cuenta, "1221911424344798");
+        assert_eq!(m[0].contacto, "573001112233");
+        assert_eq!(m[0].clase, Clase::Texto("Respuesta de prueba".into()));
+        assert_eq!(m[0].momento.timestamp(), 1785685856);
+        // `type` va DESPUÉS de `text` en lo que manda Meta, y antes en la
+        // documentación. Da igual —es JSON—, pero es justo la clase de detalle
+        // por la que se captura el cuerpo real en vez de copiar el del manual.
+    }
+
     #[test]
     fn los_acuses_de_entrega_no_son_mensajes_ni_son_un_error() {
         // Son la mayoría del tráfico. Tratarlos como fallo llenaría el log hasta

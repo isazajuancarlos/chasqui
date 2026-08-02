@@ -195,8 +195,7 @@ en la suscripción al campo `messages`.
 Esto es el objetivo de todo el ejercicio: **traer de vuelta lo que la
 documentación no dice.**
 
-- El **cuerpo exacto** que mandó Meta (está en el registro): compararlo campo a
-  campo con lo que espera `canales/whatsapp.rs`.
+- ~~El **cuerpo exacto** que mandó Meta~~ — **hecho el 2026-08-02**, ver abajo.
 - Qué manda al escribir una **nota de voz**, una **foto** y una **ubicación**:
   hoy se marcan «no soportado» y van a una persona, pero conviene ver el nombre
   real del tipo.
@@ -205,6 +204,42 @@ documentación no dice.**
 
 Con eso se cierra esta tarea. Sin eso, «funciona» quiere decir «funciona contra
 un Meta que escribimos nosotros», que no es lo mismo.
+
+### 5.1 El cuerpo real, capturado el 2026-08-02
+
+Juan le escribió «Respuesta de prueba» desde su móvil al número de prueba, y el
+cuerpo salió en «Revisa los webhooks de prueba» de la consola. Comparado campo a
+campo con `canales/whatsapp.rs`:
+
+**Lo que el traductor lee, estaba todo y en su sitio**: `object`, `entry[].id`,
+`changes[].field = "messages"`, `value.metadata.phone_number_id`,
+`messages[].id`, `.from`, `.timestamp` (cadena de segundos), `.type = "text"` y
+`.text.body`.
+
+**Seis campos que la documentación no menciona**, y que sí manda:
+
+| Campo | Ejemplo | Qué es |
+|---|---|---|
+| `contacts[].profile.username` | `jcharlesisaza` | el alias público del perfil |
+| `contacts[].user_id` | `CO.16300…` | identificador con prefijo de país |
+| `contacts[].country_code` | `CO` | país del remitente |
+| `messages[].from_user_id` | `CO.16300…` | el mismo, en el mensaje |
+| `messages[].from_logical_id` | `63363669340208` | sin documentar |
+| `messages[].internal_1p_only_data` | `{account_context:{waac_id, cs_id, account_context_type}}` | interno de Meta; el nombre lo dice |
+
+Ninguno rompe nada, y **la razón es una decisión de diseño que hasta hoy no
+tenía prueba**: `entrantes` recorre `serde_json::Value` campo a campo en vez de
+deserializar a una estructura cerrada. Con una estructura `deny_unknown_fields`,
+estos seis campos habrían tumbado **todos** los mensajes de un cliente en
+producción, sin que ninguna prueba local lo viera. Queda fijado en
+`traduce_el_cuerpo_real_de_meta_con_sus_campos_no_documentados`, con la forma
+literal y los datos personales cambiados.
+
+Un detalle menor que confirma por qué se captura en vez de copiar del manual:
+Meta manda `type` **después** de `text`, y la documentación lo pone antes.
+
+También se vio que `account_context_type` vale `non_paid_messaging` — el número
+de prueba no cobra conversación, así que **lo del cobro sigue sin medirse**.
 
 ---
 
