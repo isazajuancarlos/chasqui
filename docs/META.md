@@ -80,6 +80,19 @@ Esto no cambia el modelo de venta —el cliente pone SUS credenciales y es él
 quien pasa la verificación con su NIT—, pero sí quiere decir que **la prueba
 punta a punta de Chasqui espera a que Juan verifique su propio negocio**.
 
+Cómo se envía, con lo que no dice la ayuda de Meta:
+
+- Está en **Configuración → Seguridad e idoneidad → Centro de seguridad →
+  Verificación del negocio**, no en «Información del negocio».
+- Hay que **elegir el caso de uso**, y para esto es «La app requiere acceso a los
+  permisos en Meta for Developers». Los otros piden cosas distintas.
+- **Se verifica una persona o empresa REAL, con su documento.** Enviada el
+  2026-08-02 a nombre de *Isaza Arenas Juan Carlos* —persona natural—, porque
+  Xiliux es una marca y no una persona jurídica: verificar a nombre de la marca
+  es el camino al rechazo.
+- Meta declara **dos días laborables** de revisión. Enviada el domingo 2026-08-02,
+  el veredicto se espera hacia el **2026-08-05**.
+
 ### 1. Crear la app en Meta (una vez)
 
 El flujo cambió: ya no se elige «Tipo: Negocio» y se añade el producto WhatsApp
