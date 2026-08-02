@@ -48,16 +48,28 @@ hace falta programar nada por cada consulta nueva.
 Si su sistema no tiene API, esto no se puede hacer por mucho que se pague: lo que
 hay entonces es la base de preguntas y documentos, que ya viene incluida.
 
-**5. Traspaso a una persona**
+**5. Toma de pedidos y flujos de varios pasos**
+El asistente recoge los datos uno a uno —qué quiere, cuántos, a qué nombre, a qué
+dirección—, arma el pedido y avisa a una persona para despacharlo. Los pasos, las
+preguntas y el tipo de cada dato los define usted desde el panel; no hace falta
+programar un flujo nuevo cada vez. Sirve igual para agendar una cita o para
+levantar un caso de soporte.
+
+**6. Chat en su página web y en su aplicación**
+El mismo asistente, con las mismas respuestas y los mismos flujos, atendiendo en
+su sitio web: un `<script>` que se pega en la página. Y la misma interfaz sirve
+para su aplicación móvil, si la tiene. No es un segundo sistema que mantener.
+
+**7. Traspaso a una persona**
 Cuando el asistente no sabe, o cuando el cliente pide hablar con alguien, la
 conversación pasa a su equipo con todo el contexto. **Esto viene de serie**: un
 bot sin salida a un humano acaba desactivado en dos semanas.
 
-**6. Panel de configuración**
+**8. Panel de configuración**
 Usted cambia respuestas, precios, horarios y flujos **sin depender de nosotros y
-sin tocar código**.
+sin tocar código**. Los pedidos que arme el asistente los ve ahí mismo.
 
-**7. Cumplimiento de habeas data (Ley 1581 de 2012)**
+**9. Cumplimiento de habeas data (Ley 1581 de 2012)**
 Aviso de privacidad en el primer mensaje de cada conversación —con registro de
 que se envió, que es lo que se pide el día que hay una queja—, política de
 tratamiento redactada para su caso, y un plazo decidido para cada dato con
@@ -80,8 +92,10 @@ mencionar.
 | Panel de configuración | ✓ | ✓ | ✓ |
 | Aviso de privacidad y política de datos | ✓ | ✓ | ✓ |
 | Precios y catálogo | | ✓ | ✓ |
+| Toma de pedidos y flujos de varios pasos | | ✓ | ✓ |
 | Consultas a su sistema (su API) | | ✓ | ✓ |
 | Instagram y Messenger | | | ✓ |
+| Chat en su página web y en su app | | | ✓ |
 | **Precio (COP)** | **$1.415.000** | **$2.675.000** | **$3.775.000** |
 | **Precio (USD)** | **≈ 450** | **≈ 850** | **≈ 1.200** |
 | Entrega | 2 semanas | 3–4 semanas | 4–5 semanas |
@@ -175,10 +189,11 @@ $70.000 COP mensuales**, casi todo servidor.
 - **No incluye redacción de sus contenidos.** El asistente responde con sus
   documentos: si el catálogo o las preguntas frecuentes solo están en la cabeza
   de alguien, hay que escribirlos primero. Podemos ayudarle y se cotiza aparte.
-- **No toma pedidos de varios pasos todavía.** El asistente responde, consulta
-  su sistema y pasa a una persona; un flujo que recoge cinco datos seguidos para
-  armar un pedido está en construcción y se cotiza aparte cuando esté. Se dice
-  aquí porque prometerlo y entregarlo a medias es peor que no ofrecerlo.
+- **El pedido no entra solo a su sistema.** El asistente lo arma completo, lo
+  deja en el panel y avisa a una persona para despacharlo. Empujarlo por sí solo
+  al software que usted ya use —su ERP, su punto de venta— es una integración que
+  se cotiza aparte, porque depende de qué acepte ese sistema. Si hoy los pedidos
+  los pasa alguien a mano, esto ya le quita ese trabajo entero.
 - **El alcance es el de esta propuesta.** Lo que se pueda añadir después se
   cotiza aparte — el sistema está hecho para crecer, y eso es distinto de que
   todo lo que venga esté incluido en este precio.
@@ -207,9 +222,11 @@ cinco servicios encadenados que se rompe cuando uno cambia sus precios o cierra.
 Cuénteme:
 
 1. ¿Qué le preguntan más sus clientes? Con cinco ejemplos basta para empezar.
-2. ¿Tiene ya cuenta de WhatsApp Business, o hay que crearla?
-3. ¿Cuántas conversaciones recibe al día, aproximadamente?
-4. ¿Quién atendería las que el asistente pase a una persona?
+2. ¿Quiere que tome pedidos? Si es así, ¿qué datos necesita recoger para uno
+   —producto, cantidad, dirección, forma de pago—?
+3. ¿Tiene ya cuenta de WhatsApp Business, o hay que crearla?
+4. ¿Cuántas conversaciones recibe al día, aproximadamente?
+5. ¿Quién atendería las que el asistente pase a una persona?
 
 Con eso le confirmo el paquete que le sirve y el plazo exacto.
 
@@ -243,6 +260,24 @@ No son un número puesto a ojo. El razonamiento:
 
 - Instagram y Messenger, si el cliente no los usa de verdad.
 - El acompañamiento mensual, que puede regalarse el primer mes como cierre.
+
+## Lo que cambió el 2026-08-02
+
+La toma de pedidos, los flujos de varios pasos y el chat web **ya funcionan** —se
+construyeron el 2026-08-01 y el README lleva el estado real—. La propuesta decía
+lo contrario hasta hoy, y eso rechazaba por escrito la petición de Workana que
+mejor encaja: la primera de las cinco pide literalmente «facilitar el proceso de
+toma de pedidos directamente a través de la conversación de WhatsApp».
+
+**Los precios no se movieron**, a propósito: el rango de Workana sigue siendo el
+mismo y entregar más por el mismo número cierra más rápido. Si algún día hay que
+subir, el escalón natural es el chat web, que es lo único que ningún competidor
+de ese rango entrega junto con WhatsApp.
+
+Lo que sigue sin existir es el **webhook saliente** hacia el sistema del cliente,
+y está decidido no construirlo hasta que aparezca un cliente que ya tenga ese
+sistema. Por eso quedó escrito como lo que se cotiza aparte, y no como una
+carencia.
 
 ## Antes de mandar la primera
 
