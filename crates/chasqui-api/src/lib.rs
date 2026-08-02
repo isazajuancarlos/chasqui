@@ -151,6 +151,9 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/conversaciones/{id}/devolver-al-bot", post(panel::devolver_al_bot))
         // El derecho de supresión, y la prueba de haberlo atendido.
         .route("/conversaciones/{id}/olvidar", post(panel::olvidar_contacto))
+        // Los bytes de una foto o de una nota de voz. Con sesión, como todo
+        // `/api`: es la foto que un cliente le mandó a un negocio.
+        .route("/medios/{id}", get(panel::medio))
         .route("/supresiones", get(panel::supresiones))
         // Configuración.
         .route("/ajustes", get(panel::ajustes).put(panel::poner_ajuste))

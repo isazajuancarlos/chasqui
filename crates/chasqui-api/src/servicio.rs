@@ -46,6 +46,14 @@ pub struct Servicio {
     pub horas_ventana_web: i64,
     /// El freno de conversaciones nuevas del canal web, por IP y en memoria.
     pub freno_web: crate::web::Freno,
+    /// Hasta cuántos bytes se guarda un archivo que manda quien escribe.
+    ///
+    /// Hay tope porque los medios viven DENTRO de la base —ver
+    /// `0007_medios.sql`— y una base es también lo que se respalda y lo que se
+    /// restaura. Lo que pasa del tope **no se descarta en silencio**: queda
+    /// anotado como «demasiado grande», con su tamaño, para que quien atiende
+    /// pueda pedirlo por otra vía en vez de no enterarse (directiva 20).
+    pub tope_medio: usize,
 }
 
 /// El cliente HTTP para las consultas al sistema del cliente.
@@ -60,6 +68,12 @@ fn cliente_de_consultas() -> reqwest::Client {
         .build()
         .expect("el cliente HTTP se construye con la configuración por defecto")
 }
+
+/// 16 MiB: es lo que Meta admite subir para audio y vídeo, así que por debajo de
+/// esa cifra estaríamos rechazando archivos que WhatsApp sí acepta. Los
+/// documentos pueden llegar a más y esos sí se quedan fuera, dichos y no
+/// callados.
+const TOPE_MEDIO: usize = 16 * 1024 * 1024;
 
 impl Servicio {
     pub fn nuevo(config: &Config, pool: SqlitePool) -> Servicio {
@@ -102,6 +116,7 @@ impl Servicio {
             sin_tls: config.sin_tls,
             horas_ventana_web: 24 * 7,
             freno_web: crate::web::Freno::default(),
+            tope_medio: TOPE_MEDIO,
         }
     }
 

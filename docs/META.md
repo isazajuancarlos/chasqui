@@ -243,9 +243,17 @@ documentación no dice.**
 
 - ~~El **cuerpo exacto** que mandó Meta~~ — **hecho el 2026-08-02**, ver abajo.
 - ~~Qué manda al escribir una **nota de voz** y una **foto**~~ — **hecho**: los
-  tipos reales son `audio` e `image`, y sí coinciden con la documentación (que no
-  era de dar por hecho, viendo que los campos del cuerpo no coincidían). Falta
-  `location`.
+  tipos reales son `audio`, `image` y `location`, y sí coinciden con la
+  documentación (que no era de dar por hecho, viendo que los campos del cuerpo no
+  coincidían).
+- **Pendiente y concreto: la DESCARGA de un medio contra Meta de verdad.** Desde
+  el 2026-08-02 Chasqui se trae el archivo y lo guarda, y eso está probado de
+  punta a punta contra un Meta falso (`tests/frontera_medios.rs`). Lo que ese
+  sustituto **no** puede desmentir son tres cosas que salen de la documentación:
+  que la ficha del medio traiga `url`, que la descarga exija la cabecera
+  `Authorization` aunque la URL parezca completa, y que venga `file_size`. Si
+  alguna falla, el síntoma será un medio en estado `fallido` **con su motivo** en
+  el panel — está escrito para fallar así y no en silencio.
 - ~~Cuánto tarda el envío de verdad~~ — **medido**: unos 4 s del mensaje entrante
   a la primera respuesta en el móvil, y 0,64 s entre el aviso de privacidad y la
   respuesta (el segundo envío ya no paga el webhook).

@@ -19,10 +19,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-use chasqui_dominio::mensaje::Clase;
+use chasqui_dominio::mensaje::{Clase, Medio, Ubicacion};
 use chasqui_dominio::{Canal, MensajeEntrante, MensajeSaliente};
 
-use super::{AdaptadorCanal, ErrorCanal};
+use super::{AdaptadorCanal, Descarga, ErrorCanal};
 
 /// Límites de texto de Meta. Instagram es bastante más corto que Messenger, y
 /// pasarse no trunca: rechaza el envío entero.
@@ -93,15 +93,53 @@ fn clase(evento: &Value) -> Option<Clase> {
         return Some(Clase::Texto(texto.to_string()));
     }
 
-    // Adjuntos sin texto: una foto, un audio, un sticker. Se nombra el tipo para
-    // que la persona que lo atienda sepa qué le mandaron.
+    // Adjuntos sin texto: una foto, un audio, un sticker, una ubicación.
+    //
+    // OJO — ESTO NO ESTÁ VERIFICADO CONTRA INSTAGRAM NI MESSENGER DE VERDAD.
+    // WhatsApp sí lo está (2026-08-02, con un teléfono real); aquí no hay cuenta
+    // con la que probar, así que la forma sale de la documentación de Meta — la
+    // misma que ese día se quedó corta en seis campos. Por eso todo lo que no
+    // case cae a `NoSoportado` con su nombre: si la forma es otra, el síntoma
+    // será «no lo sé leer» y no un archivo inventado.
     if let Some(adjuntos) = mensaje.get("attachments").and_then(Value::as_array) {
-        let tipo = adjuntos
-            .first()
+        let primero = adjuntos.first();
+        let tipo = primero
             .and_then(|a| a.get("type"))
             .and_then(Value::as_str)
             .unwrap_or("desconocido");
-        return Some(Clase::NoSoportado(format!("adjunto:{tipo}")));
+
+        // La ubicación viaja como adjunto, pero con coordenadas en vez de URL.
+        if tipo == "location" {
+            let lat = primero.and_then(|a| a.pointer("/payload/coordinates/lat")).and_then(Value::as_f64);
+            let lon = primero.and_then(|a| a.pointer("/payload/coordinates/long")).and_then(Value::as_f64);
+            return Some(match (lat, lon) {
+                (Some(latitud), Some(longitud)) => Clase::Ubicacion(Ubicacion {
+                    latitud,
+                    longitud,
+                    nombre: primero
+                        .and_then(|a| a.get("title"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    direccion: None,
+                }),
+                _ => Clase::NoSoportado("adjunto:location sin coordenadas".into()),
+            });
+        }
+
+        // Aquí el billete NO es un identificador: es la URL misma. El campo
+        // `id` de `Medio` es «con qué se pide el archivo», y en este canal eso
+        // es una URL. Se distingue sola —empieza por http— y así el adaptador
+        // no necesita una bandera más.
+        let url = primero.and_then(|a| a.pointer("/payload/url")).and_then(Value::as_str);
+        return Some(match url {
+            Some(u) => Clase::Medio(Medio {
+                tipo: tipo.to_string(),
+                id: u.to_string(),
+                mime: None,
+                nombre_archivo: None,
+            }),
+            None => Clase::NoSoportado(format!("adjunto:{tipo}")),
+        });
     }
 
     None
@@ -118,6 +156,40 @@ impl AdaptadorCanal for MetaMensajeria {
             Canal::Instagram => LIMITE_INSTAGRAM,
             _ => LIMITE_MESSENGER,
         }
+    }
+
+    /// Aquí el «identificador» ya es la URL del archivo, así que es **una sola
+    /// llamada** y no dos como en WhatsApp.
+    ///
+    /// Va SIN el token: son URLs firmadas de la CDN de Meta, y meterle una
+    /// cabecera `Authorization` a una URL ya firmada es la clase de cosa que
+    /// devuelve 403 sin explicar por qué. **Sin verificar contra una cuenta
+    /// real** — como todo lo de medios en este canal.
+    async fn descargar_medio(
+        &self,
+        _token: &str,
+        url: &str,
+        tope: usize,
+    ) -> Result<Descarga, ErrorCanal> {
+        if !url.starts_with("http") {
+            return Err(self.forma(format!(
+                "se esperaba la URL del adjunto y llegó {url:?}; en este canal el billete del \
+                 medio es la URL, no un identificador"
+            )));
+        }
+
+        let respuesta = self.cliente.get(url).send().await?.error_for_status()?;
+        let mime = respuesta
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+
+        let bytes = respuesta.bytes().await?;
+        if bytes.len() > tope {
+            return Err(ErrorCanal::DemasiadoGrande { tamano: bytes.len() as u64, tope });
+        }
+        Ok(Descarga { bytes: bytes.to_vec(), mime })
     }
 
     fn entrantes(&self, cuerpo: &Value) -> Result<Vec<MensajeEntrante>, ErrorCanal> {
@@ -304,15 +376,50 @@ mod pruebas {
     }
 
     #[test]
-    fn una_foto_sin_texto_se_marca_no_soportada_con_su_tipo() {
+    fn una_foto_sin_texto_conserva_su_url_para_poder_traerla() {
+        // Aquí el billete es la URL y no un identificador: es la diferencia con
+        // WhatsApp, y por eso `descargar_medio` de este canal hace UNA llamada.
         let evento = json!({
             "sender": { "id": "PSID-1" }, "recipient": { "id": "PAGE-1" },
             "timestamp": 1785000000000i64,
             "message": { "mid": "m_img",
-                         "attachments": [{ "type": "image", "payload": { "url": "https://…" } }] }
+                         "attachments": [{ "type": "image", "payload": { "url": "https://cdn.example/f.jpg" } }] }
+        });
+        let m = adaptador(Canal::Messenger).entrantes(&webhook("page", evento)).unwrap();
+        let Clase::Medio(medio) = &m[0].clase else { panic!("{:?}", m[0].clase) };
+        assert_eq!(medio.tipo, "image");
+        assert_eq!(medio.id, "https://cdn.example/f.jpg");
+    }
+
+    #[test]
+    fn un_adjunto_sin_url_se_denuncia_en_vez_de_prometer_un_archivo() {
+        // ESTA FORMA NO ESTÁ VERIFICADA CONTRA INSTAGRAM REAL. Si Meta la manda
+        // de otra manera, el síntoma tiene que ser «no lo sé leer» y no una
+        // ficha de archivo que nunca se podrá descargar.
+        let evento = json!({
+            "sender": { "id": "PSID-1" }, "recipient": { "id": "PAGE-1" },
+            "timestamp": 1785000000000i64,
+            "message": { "mid": "m_img", "attachments": [{ "type": "image", "payload": {} }] }
         });
         let m = adaptador(Canal::Messenger).entrantes(&webhook("page", evento)).unwrap();
         assert_eq!(m[0].clase, Clase::NoSoportado("adjunto:image".into()));
+    }
+
+    #[test]
+    fn una_ubicacion_de_messenger_trae_sus_coordenadas() {
+        let evento = json!({
+            "sender": { "id": "PSID-1" }, "recipient": { "id": "PAGE-1" },
+            "timestamp": 1785000000000i64,
+            "message": { "mid": "m_loc", "attachments": [{
+                "type": "location", "title": "Mi casa",
+                "payload": { "coordinates": { "lat": 6.038, "long": -75.702 } }
+            }] }
+        });
+        let m = adaptador(Canal::Messenger).entrantes(&webhook("page", evento)).unwrap();
+        let Clase::Ubicacion(u) = &m[0].clase else { panic!("{:?}", m[0].clase) };
+        assert_eq!(u.latitud, 6.038);
+        assert_eq!(u.longitud, -75.702);
+        assert_eq!(u.nombre.as_deref(), Some("Mi casa"));
     }
 
     #[test]

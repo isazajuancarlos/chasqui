@@ -12,7 +12,7 @@
 //! contestó.
 
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 use crate::Resultado;
 
@@ -43,6 +43,21 @@ pub async fn registrar_entrante(
     Ok(r.rows_affected() == 1)
 }
 
+/// El id de fila de un entrante ya registrado, buscado por el id de Meta.
+///
+/// Hace falta para colgarle un medio: `registrar_entrante` dice si era nuevo,
+/// que es lo que decide la idempotencia, y cambiar su tipo para devolver además
+/// la fila obligaría a tocar todos sus usos por un caso que solo aparece cuando
+/// llega una foto. Una consulta más, y solo cuando hay algo que colgar.
+pub async fn id_de_entrante(pool: &SqlitePool, id_externo: &str) -> Resultado<Option<i64>> {
+    let fila =
+        sqlx::query("SELECT id FROM mensaje WHERE id_externo = ?1 AND direccion = 'entrante'")
+            .bind(id_externo)
+            .fetch_optional(pool)
+            .await?;
+    Ok(fila.map(|f| f.get::<i64, _>("id")))
+}
+
 /// Registra lo que se envió, con el acuse que devolvió Meta si lo hubo.
 pub async fn registrar_saliente(
     pool: &SqlitePool,
@@ -69,9 +84,12 @@ pub async fn registrar_saliente(
 pub async fn de_conversacion(
     pool: &SqlitePool,
     id: i64,
-) -> Resultado<Vec<(String, String, String)>> {
-    let filas: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT direccion, texto, momento FROM mensaje WHERE conversacion_id = ?1 ORDER BY id",
+) -> Resultado<Vec<(i64, String, String, String)>> {
+    // El `id` viaja desde el 2026-08-02: sin él no se puede decir a QUÉ mensaje
+    // pertenece la foto que se guardó aparte, y el panel enseñaría los archivos
+    // sueltos al final en vez de dentro de la conversación.
+    let filas: Vec<(i64, String, String, String)> = sqlx::query_as(
+        "SELECT id, direccion, texto, momento FROM mensaje WHERE conversacion_id = ?1 ORDER BY id",
     )
     .bind(id)
     .fetch_all(pool)
@@ -185,7 +203,7 @@ mod pruebas {
 
         let h = de_conversacion(&pool, c).await.unwrap();
         let solo_texto: Vec<(String, String)> =
-            h.into_iter().map(|(d, t, _)| (d, t)).collect();
+            h.into_iter().map(|(_, d, t, _)| (d, t)).collect();
         assert_eq!(
             solo_texto,
             vec![

@@ -21,10 +21,11 @@ use chrono::Utc;
 
 use chasqui_datos::{
     ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado,
-    flujo as bd_flujo, mensaje as bd_mensaje, pedido,
+    flujo as bd_flujo, medio as bd_medio, mensaje as bd_mensaje, pedido,
 };
 use chasqui_dominio::atencion::{Accion, Contexto, Motivo, atender};
 use chasqui_dominio::conversacion::Estado;
+use chasqui_dominio::mensaje::Clase;
 use chasqui_dominio::{MensajeEntrante, MensajeSaliente};
 
 use crate::canales::{AdaptadorCanal, trozos};
@@ -92,6 +93,16 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
         // Meta reintentó. Ya se contestó: volver a hacerlo es el fallo que en
         // producción se ve como «el bot manda todo tres veces».
         return Ok(Resultado::Repetido);
+    }
+
+    // Si venía una foto, un audio o un documento, se anota y se manda a buscar.
+    //
+    // **Anotar es rápido; descargar no.** Este camino termina en el 200 que
+    // espera Meta, y Meta reintenta si no lo recibe en segundos: bajar aquí un
+    // vídeo de 15 MB haría que el mismo mensaje se atendiera dos y tres veces.
+    // Por eso la fila nace `pendiente` y la descarga se va a otra tarea.
+    if let Clase::Medio(medio) = &entrante.clase {
+        encolar_medio(servicio, &cuenta, entrante, medio, ahora).await?;
     }
 
     let guion = ajuste::cargar_guion(pool).await?;
@@ -358,4 +369,101 @@ async fn encolar(
     // que el bot deje de responder.
     conversacion::cambiar_estado(pool, conversacion_id, Estado::EsperandoHumano).await?;
     Ok(())
+}
+
+/// Anota el medio que llegó y manda a buscarlo **en otra tarea**.
+///
+/// El orden es deliberado: primero la fila —una sola escritura, instantánea—, y
+/// solo después la descarga. Si el proceso se cae entremedias queda la fila
+/// `pendiente` con el identificador de Meta, que es el único billete para
+/// reintentarlo; al revés no quedaría nada y el archivo del cliente se habría
+/// perdido sin dejar rastro, que es exactamente lo que este código vino a
+/// arreglar.
+async fn encolar_medio(
+    servicio: &Servicio,
+    cuenta: &chasqui_datos::cuenta::Cuenta,
+    entrante: &MensajeEntrante,
+    medio: &chasqui_dominio::mensaje::Medio,
+    ahora: chrono::DateTime<Utc>,
+) -> Result<(), Fallo> {
+    let pool = &servicio.pool;
+
+    let Some(mensaje_id) = bd_mensaje::id_de_entrante(pool, &entrante.id_externo).await? else {
+        // Se acaba de insertar; que no esté significa que otra cosa lo borró
+        // entre medias. No se inventa una fila huérfana.
+        eprintln!(
+            "chasqui: llegó un {} pero el mensaje {} ya no está; no se guarda el archivo",
+            medio.tipo, entrante.id_externo
+        );
+        return Ok(());
+    };
+
+    let medio_id = bd_medio::anotar(
+        pool,
+        mensaje_id,
+        &medio.tipo,
+        &medio.id,
+        medio.mime.as_deref(),
+        medio.nombre_archivo.as_deref(),
+        ahora,
+    )
+    .await?;
+
+    // `Servicio` se clona barato —todo va detrás de `Arc`—, así que la tarea se
+    // lleva lo suyo y este camino vuelve a contestarle a Meta.
+    let servicio = servicio.clone();
+    let canal = entrante.canal;
+    let token = cuenta.token.clone();
+    let billete = medio.id.clone();
+    tokio::spawn(async move {
+        descargar_medio(&servicio, canal, &token, medio_id, &billete).await;
+    });
+
+    Ok(())
+}
+
+/// Trae el archivo y lo guarda. **Nunca borra la fila**: si falla, deja dicho
+/// por qué.
+///
+/// Que un fallo de red se convierta en «aquí no llegó nada» es la peor salida
+/// posible — quien atiende no sabría que el cliente mandó su comprobante. Con la
+/// fila y el motivo, al menos puede pedírselo otra vez.
+async fn descargar_medio(
+    servicio: &Servicio,
+    canal: chasqui_dominio::Canal,
+    token: &str,
+    medio_id: i64,
+    billete: &str,
+) {
+    let pool = &servicio.pool;
+    let resultado =
+        servicio.canal(canal).descargar_medio(token, billete, servicio.tope_medio).await;
+
+    let anotar = match resultado {
+        Ok(descarga) => {
+            match bd_medio::guardar(pool, medio_id, &descarga.bytes, descarga.mime.as_deref()).await
+            {
+                Ok(()) => return,
+                Err(e) => {
+                    // Bajó bien y no cupo en la base. Es distinto de «no se pudo
+                    // bajar» y se dice distinto.
+                    eprintln!("chasqui: no se pudo guardar el medio {medio_id}: {e}");
+                    (bd_medio::Estado::Fallido, format!("se descargó pero no se pudo guardar: {e}"), None)
+                }
+            }
+        }
+        Err(crate::canales::ErrorCanal::DemasiadoGrande { tamano, tope }) => (
+            bd_medio::Estado::DemasiadoGrande,
+            format!("pesa {tamano} bytes y el tope de esta instalación es {tope}"),
+            Some(tamano as i64),
+        ),
+        Err(e) => {
+            eprintln!("chasqui: no se pudo traer el medio {medio_id} de {canal}: {e}");
+            (bd_medio::Estado::Fallido, e.to_string(), None)
+        }
+    };
+
+    if let Err(e) = bd_medio::marcar(pool, medio_id, anotar.0, &anotar.1, anotar.2).await {
+        eprintln!("chasqui: no se pudo anotar el fallo del medio {medio_id}: {e}");
+    }
 }

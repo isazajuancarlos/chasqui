@@ -38,6 +38,15 @@ pub enum ErrorCanal {
 
     #[error("no se pudo hablar con la API Graph: {0}")]
     Red(#[from] reqwest::Error),
+
+    #[error("el canal {canal} no entrega archivos por referencia")]
+    SinMedios { canal: Canal },
+
+    #[error(
+        "el archivo pesa {tamano} y el tope es {tope}. No se guarda a medias: medio archivo se \
+         enseña como un archivo roto y nadie sabría que le faltan bytes."
+    )]
+    DemasiadoGrande { tamano: u64, tope: usize },
 }
 
 /// Un canal por el que se recibe y se envía.
@@ -72,6 +81,33 @@ pub trait AdaptadorCanal: Send + Sync {
     /// entero**. Una respuesta larga de la base de conocimiento se parte en
     /// varios mensajes; ese es el trabajo de [`trozos`].
     fn limite_texto(&self) -> usize;
+
+    /// Trae los bytes de un medio que el canal solo entregó por referencia.
+    ///
+    /// Lo implementa quien lo tenga: en los canales de Meta son **dos** llamadas
+    /// —el identificador da una URL temporal, y esa URL da el archivo—, y la URL
+    /// caduca en minutos, por lo que esto se llama al recibir el mensaje y no
+    /// cuando alguien abre el panel.
+    ///
+    /// El defecto es negarse, no devolver vacío: un canal que no trae medios
+    /// —el widget web, que sube los suyos por otra puerta— tiene que decirlo, no
+    /// entregar cero bytes que después se enseñan como una foto rota.
+    async fn descargar_medio(
+        &self,
+        _token: &str,
+        _id: &str,
+        _tope: usize,
+    ) -> Result<Descarga, ErrorCanal> {
+        Err(ErrorCanal::SinMedios { canal: self.canal() })
+    }
+}
+
+/// Un archivo traído del canal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Descarga {
+    pub bytes: Vec<u8>,
+    /// El que dice la descarga, que manda sobre el que decía el webhook.
+    pub mime: Option<String>,
 }
 
 /// Parte un texto en trozos que quepan en el canal, cortando por líneas o

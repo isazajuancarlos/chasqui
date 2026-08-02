@@ -20,7 +20,24 @@ export interface Conversacion {
   id: number; canal: string; contacto: string; estado: string;
   abierta_en: string; ultimo_en: string; mensajes: number; aviso_enviado: boolean;
 }
-export interface Mensaje { direccion: string; texto: string; momento: string; }
+/** Un archivo que mandó quien escribe. Sin los bytes: esos se piden aparte. */
+export interface Medio {
+  id: number;
+  tipo: string;
+  mime: string | null;
+  nombre_archivo: string | null;
+  /** guardado | pendiente | demasiado_grande | fallido */
+  estado: string;
+  detalle: string | null;
+  tamano: number | null;
+}
+export interface Mensaje {
+  id: number;
+  direccion: string;
+  texto: string;
+  momento: string;
+  medio?: Medio;
+}
 export interface Pregunta { id: number; titulo: string; respuesta: string; disparadores: string[]; }
 export interface Consulta {
   id: number; titulo: string; url: string; activa: boolean; con_credenciales: boolean;

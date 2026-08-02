@@ -199,6 +199,28 @@ tratamiento.
 Los tres webhooks son `/webhook/whatsapp`, `/webhook/instagram` y
 `/webhook/messenger`.
 
+## Fotos, notas de voz y ubicaciones
+
+Cuando alguien manda una foto, una nota de voz, un vídeo o un documento, Chasqui
+**se lo trae y lo guarda**, y quien atiende lo ve —y lo abre— dentro de la
+conversación en el panel. Importa más de lo que parece: con la API oficial de
+WhatsApp el número del negocio **no vive en ningún teléfono**, así que el panel
+es la única bandeja que existe. Lo que no se guarde aquí, el negocio no lo verá
+nunca.
+
+Los archivos van **dentro de la base**, no en una carpeta aparte. Así, borrar a
+una persona borra también sus archivos, el plazo de retención los alcanza y el
+respaldo se los lleva — sin nada que configurar y sin que se pueda olvidar. Hay
+un tamaño máximo, y lo que lo pasa **queda anotado diciendo que no cabe**: quien
+atiende se entera y puede pedirlo por otra vía, en vez de creer que el cliente
+no mandó nada.
+
+Una **ubicación** no se descarga: las coordenadas vienen en el propio mensaje y
+se guardan con él, así que quien atiende ve a dónde hay que llevar el pedido.
+
+En los cuatro casos el bot no responde por su cuenta: **llama a una persona**,
+porque una foto no se contesta a ciegas.
+
 ## Qué se probó, y contra qué
 
 **Contra WhatsApp de verdad, el 2026-08-02.** Un mensaje escrito a mano desde un

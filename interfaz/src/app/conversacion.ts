@@ -34,6 +34,47 @@ import { Api, Mensaje } from './api';
       @for (m of mensajes(); track $index) {
         <div class="burbuja" [class.mia]="m.direccion === 'saliente'">
           <p>{{ m.texto }}</p>
+
+          <!-- El archivo, cuando lo hay. Va DENTRO de la burbuja, en el sitio
+               de la conversación en que llegó: quien atiende necesita ver la
+               foto junto a lo que el cliente dijo antes y después. -->
+          @if (m.medio; as med) {
+            @switch (med.estado) {
+              @case ('guardado') {
+                @if (med.tipo === 'image' || med.tipo === 'sticker') {
+                  <a [href]="'/api/medios/' + med.id" target="_blank" rel="noopener">
+                    <img class="adjunto" [src]="'/api/medios/' + med.id" alt="Foto que envió el cliente" />
+                  </a>
+                } @else if (med.tipo === 'audio' || med.tipo === 'voice') {
+                  <audio class="adjunto" controls [src]="'/api/medios/' + med.id"></audio>
+                } @else if (med.tipo === 'video') {
+                  <video class="adjunto" controls [src]="'/api/medios/' + med.id"></video>
+                } @else {
+                  <a class="archivo" [href]="'/api/medios/' + med.id" target="_blank" rel="noopener">
+                    Descargar {{ med.nombre_archivo || med.tipo }}
+                  </a>
+                }
+              }
+              @case ('pendiente') {
+                <p class="nota">Trayendo el archivo…</p>
+              }
+              @case ('demasiado_grande') {
+                <p class="nota falta">
+                  El archivo no se guardó porque pasa del tamaño máximo de esta instalación.
+                  Pídaselo por otro medio. ({{ med.detalle }})
+                </p>
+              }
+              @default {
+                <!-- Decir que NO está y por qué. Lo peor sería no decir nada:
+                     quien atiende creería que el cliente no mandó nada. -->
+                <p class="nota falta">
+                  No se pudo traer el archivo que envió. Pídaselo otra vez.
+                  @if (med.detalle) { <span class="detalle">({{ med.detalle }})</span> }
+                </p>
+              }
+            }
+          }
+
           <span class="cuando">{{ m.momento | date: 'short' }}</span>
         </div>
       }
@@ -59,6 +100,13 @@ import { Api, Mensaje } from './api';
     .burbuja.mia { background: #d7f0d7; align-self: flex-end; }
     .burbuja p { margin: 0; white-space: pre-wrap; }
     .cuando { font-size: .7rem; color: #666; }
+    .adjunto { display: block; max-width: 100%; max-height: 18rem; border-radius: .4rem;
+               margin: .4rem 0; }
+    audio.adjunto { width: 18rem; max-height: none; }
+    .archivo { display: inline-block; margin: .4rem 0; }
+    .nota { margin: .4rem 0; font-size: .85rem; color: #555; }
+    .nota.falta { color: #8a5300; }
+    .detalle { color: #777; }
     .ancho { width: 100%; }
     .vacio { color: #666; }
     .error { color: #b3261e; }

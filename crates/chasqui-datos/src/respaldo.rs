@@ -54,6 +54,10 @@ const TABLAS: &[&str] = &[
     "flujo",
     "flujo_paso",
     "intento_acceso",
+    // Los archivos que manda quien escribe, con sus bytes. La misma prueba los
+    // cazó el día que nacieron, igual que a `pedido`: es la tercera vez que ese
+    // guardián paga lo que costó escribirlo.
+    "medio",
     "mensaje",
     "modelo",
     // Los pedidos armados por un flujo. La prueba de arriba los cazó el día que
@@ -675,5 +679,52 @@ mod pruebas {
         assert_eq!(modo & 0o777, 0o600, "la copia quedó legible por otros");
         let modo_dir = std::fs::metadata(&copia).unwrap().permissions().mode();
         assert_eq!(modo_dir & 0o777, 0o700, "la carpeta quedó abierta");
+    }
+    #[tokio::test]
+    async fn el_respaldo_se_lleva_los_BYTES_de_las_fotos() {
+        // LA OTRA MITAD DE POR QUÉ LOS MEDIOS VAN DENTRO DE LA BASE. Con los
+        // archivos en una carpeta al lado, `VACUUM INTO` copiaría la base y no
+        // los archivos: al restaurar quedarían conversaciones apuntando a fotos
+        // que ya no existen, y el respaldo se habría dado por bueno.
+        let dir = temporal("respaldo-con-fotos");
+        let url = base_en_disco(&dir).await;
+
+        let jpeg: Vec<u8> = (0u8..=255).cycle().take(50_000).collect();
+        let pool = crate::abrir(&url).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mensaje (conversacion_id, direccion, id_externo, texto, momento) \
+             VALUES (1, 'entrante', 'wamid.foto', '[una foto]', '2026-08-01T00:00:00+00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO medio (mensaje_id, tipo, id_externo, mime, estado, bytes, tamano, creado_en) \
+             VALUES (1, 'image', 'MEDIA-1', 'image/jpeg', 'guardado', ?1, ?2, '2026-08-01T00:00:00+00:00')",
+        )
+        .bind(&jpeg[..])
+        .bind(jpeg.len() as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let copia = dir.join("copia");
+        respaldar(&url, &copia).await.unwrap();
+
+        // Se pierde la instalación entera y se restaura.
+        let destino = ruta_de_url(&url);
+        std::fs::remove_file(&destino).unwrap();
+        restaurar(&copia, &url, false).await.unwrap();
+
+        let pool = crate::abrir(&url).await.unwrap();
+        let recuperado: Vec<u8> = sqlx::query_scalar("SELECT bytes FROM medio WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        // Byte a byte, no por tamaño: una copia truncada tiene tamaño y no sirve.
+        assert_eq!(recuperado, jpeg, "la foto no sobrevivió al respaldo intacta");
     }
 }

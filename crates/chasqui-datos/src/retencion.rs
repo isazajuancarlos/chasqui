@@ -366,4 +366,72 @@ mod pruebas {
             .unwrap();
         assert_eq!(quedan, 10, "se llevó por delante conversaciones dentro del plazo");
     }
+    /// Crea un mensaje con un archivo guardado y devuelve (conversacion, medio).
+    async fn con_archivo(pool: &SqlitePool, cta: i64, contacto: &str) -> (i64, i64) {
+        let conv = abrir_o_continuar(pool, cta, contacto, t0(), 24).await.unwrap().id;
+        mensaje::registrar_entrante(pool, conv, &format!("wamid.{contacto}"), "[una foto]", t0())
+            .await
+            .unwrap();
+        let msg = mensaje::id_de_entrante(pool, &format!("wamid.{contacto}")).await.unwrap().unwrap();
+        let medio_id =
+            crate::medio::anotar(pool, msg, "image", "MEDIA-1", Some("image/jpeg"), None, t0())
+                .await
+                .unwrap();
+        crate::medio::guardar(pool, medio_id, b"\xff\xd8\xff-esto-es-una-foto", Some("image/jpeg"))
+            .await
+            .unwrap();
+        (conv, medio_id)
+    }
+
+    async fn cuantos_medios(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM medio").fetch_one(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn olvidar_se_lleva_TAMBIEN_la_foto() {
+        // LA PRUEBA QUE JUSTIFICA GUARDAR LOS BYTES EN LA BASE. Con los archivos
+        // en una carpeta, este borrado dejaría la foto en el disco y la
+        // supresión de la Ley 1581 sería falsa — y nadie lo notaría, porque las
+        // filas sí habrían desaparecido.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        con_archivo(&pool, cta, "573001").await;
+        assert_eq!(cuantos_medios(&pool).await, 1);
+
+        olvidar(&pool, "573001", t0()).await.unwrap();
+
+        assert_eq!(cuantos_medios(&pool).await, 0, "la foto sobrevivió a la supresión");
+    }
+
+    #[tokio::test]
+    async fn purgar_por_plazo_se_lleva_TAMBIEN_las_fotos() {
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        let (conv, _) = con_archivo(&pool, cta, "573002").await;
+        // La conversación se envejece a mano: el plazo mide por `ultimo_en`.
+        sqlx::query("UPDATE conversacion SET ultimo_en = ?1, abierta_en = ?1 WHERE id = ?2")
+            .bind((t0() - Duration::days(200)).to_rfc3339())
+            .bind(conv)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        purgar(&pool, chasqui_dominio::retencion::corte(t0(), 90), t0()).await.unwrap();
+
+        assert_eq!(cuantos_medios(&pool).await, 0, "la foto sobrevivió al plazo de retención");
+    }
+
+    #[tokio::test]
+    async fn el_borrado_de_una_conversacion_no_toca_la_foto_de_otra() {
+        // Directiva 22: la limpieza se acota a lo que se va a regenerar. Un
+        // CASCADE mal puesto se lleva de más y no se ve hasta la segunda vuelta.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        con_archivo(&pool, cta, "573001").await;
+        con_archivo(&pool, cta, "573002").await;
+
+        olvidar(&pool, "573001", t0()).await.unwrap();
+
+        assert_eq!(cuantos_medios(&pool).await, 1, "se llevó la foto de quien no pidió nada");
+    }
 }

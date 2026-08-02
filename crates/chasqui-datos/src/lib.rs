@@ -20,6 +20,7 @@ pub mod documento;
 pub mod cuenta;
 pub mod escalado;
 pub mod flujo;
+pub mod medio;
 pub mod mensaje;
 pub mod pedido;
 pub mod respaldo;

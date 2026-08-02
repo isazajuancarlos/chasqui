@@ -20,7 +20,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado, flujo as bd_flujo, mensaje as bd_mensaje, pedido, retencion, usuario};
+use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado, flujo as bd_flujo, medio as bd_medio, mensaje as bd_mensaje, pedido, retencion, usuario};
 use chasqui_dominio::conversacion::Estado;
 use chasqui_dominio::{Canal, MensajeSaliente};
 
@@ -222,9 +222,32 @@ pub async fn conversaciones(Agente(_): Agente, State(servicio): State<Servicio>)
 
 #[derive(Serialize)]
 pub struct MensajeJson {
+    pub id: i64,
     pub direccion: String,
     pub texto: String,
     pub momento: String,
+    /// El archivo que traía, si traía. Va DENTRO del mensaje y no en una lista
+    /// aparte porque es donde tiene sentido: quien atiende ve la foto en el
+    /// sitio de la conversación en que llegó, no amontonada al final.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub medio: Option<MedioJson>,
+}
+
+/// Un archivo, **sin los bytes**. Los bytes se piden aparte y de uno en uno: una
+/// conversación con treinta fotos no puede mandarlas todas para pintar la lista.
+#[derive(Serialize)]
+pub struct MedioJson {
+    pub id: i64,
+    pub tipo: String,
+    pub mime: Option<String>,
+    pub nombre_archivo: Option<String>,
+    /// `guardado`, `pendiente`, `demasiado_grande` o `fallido`. **Se le enseña a
+    /// quien atiende**: «no pude traerlo» y «no hay nada» no son lo mismo, y
+    /// confundirlos hace que el cliente se quede sin respuesta creyendo que la
+    /// mandó.
+    pub estado: String,
+    pub detalle: Option<String>,
+    pub tamano: Option<i64>,
 }
 
 /// `GET /api/conversaciones/{id}` — el historial.
@@ -233,15 +256,102 @@ pub async fn historial(
     State(servicio): State<Servicio>,
     Path(id): Path<i64>,
 ) -> Response {
-    match bd_mensaje::de_conversacion(&servicio.pool, id).await {
-        Ok(lista) => Json(
-            lista
-                .into_iter()
-                .map(|(direccion, texto, momento)| MensajeJson { direccion, texto, momento })
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
-        Err(e) => fallo("leer el historial", e),
+    let lista = match bd_mensaje::de_conversacion(&servicio.pool, id).await {
+        Ok(l) => l,
+        Err(e) => return fallo("leer el historial", e),
+    };
+    let medios = match bd_medio::de_conversacion(&servicio.pool, id).await {
+        Ok(m) => m,
+        Err(e) => return fallo("leer los archivos de la conversación", e),
+    };
+
+    Json(
+        lista
+            .into_iter()
+            .map(|(id_mensaje, direccion, texto, momento)| MensajeJson {
+                id: id_mensaje,
+                direccion,
+                texto,
+                momento,
+                medio: medios.iter().find(|m| m.mensaje_id == id_mensaje).map(|m| MedioJson {
+                    id: m.id,
+                    tipo: m.tipo.clone(),
+                    mime: m.mime.clone(),
+                    nombre_archivo: m.nombre_archivo.clone(),
+                    estado: m.estado.como_texto().to_string(),
+                    detalle: m.detalle.clone(),
+                    tamano: m.tamano,
+                }),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .into_response()
+}
+
+/// `GET /api/medios/{id}` — **los bytes de un archivo**.
+///
+/// Exige sesión como todo `/api`, y eso aquí no es formalidad: es la foto que un
+/// cliente le mandó a un negocio. Servirla por una URL adivinable sería publicar
+/// datos personales ajenos, que es justo lo que la frase «las conversaciones no
+/// salen de su servidor» promete que no pasa.
+pub async fn medio(
+    Agente(_): Agente,
+    State(servicio): State<Servicio>,
+    Path(id): Path<i64>,
+) -> Response {
+    match bd_medio::bytes(&servicio.pool, id).await {
+        Ok(Some((bytes, mime, nombre))) => {
+            let mut cabeceras = axum::http::HeaderMap::new();
+            // Sin `Content-Type` fiable, `application/octet-stream`: el navegador
+            // lo descarga en vez de intentar interpretarlo. Adivinar el tipo por
+            // el contenido es exactamente cómo se sirve un HTML ajeno como
+            // página propia.
+            let tipo = mime.unwrap_or_else(|| "application/octet-stream".into());
+
+            // **QUIÉN ELIGE ESTE `mime` ES QUIEN ESCRIBE.** Un cliente puede
+            // mandar como documento un `.html`, y con `inline` el navegador lo
+            // ejecutaría EN EL MISMO ORIGEN que el panel: su JavaScript, con la
+            // sesión del agente. Por eso se enseña dentro de la página solo lo
+            // que es imagen, audio o vídeo, y todo lo demás se descarga.
+            let se_puede_enseñar = tipo.starts_with("image/")
+                || tipo.starts_with("audio/")
+                || tipo.starts_with("video/");
+
+            if let Ok(v) = axum::http::HeaderValue::from_str(&tipo) {
+                cabeceras.insert(axum::http::header::CONTENT_TYPE, v);
+            }
+
+            // Y aun así, cinturón: `sandbox` deja el documento sin origen, sin
+            // scripts y sin formularios. Con las dos cosas, un `text/html` que
+            // se colara por un tipo que empiece por «image/» tampoco haría nada.
+            cabeceras.insert(
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                axum::http::HeaderValue::from_static("sandbox; default-src 'none'"),
+            );
+
+            // El nombre va entrecomillado y sin comillas propias: un nombre de
+            // archivo lo elige quien escribe, y quien escribe no es de fiar.
+            let limpio: String = nombre
+                .unwrap_or_default()
+                .chars()
+                .filter(|c| *c != '"' && *c != '\n' && *c != '\r')
+                .collect();
+            let como = if se_puede_enseñar { "inline" } else { "attachment" };
+            let disposicion = if limpio.is_empty() {
+                como.to_string()
+            } else {
+                format!("{como}; filename=\"{limpio}\"")
+            };
+            if let Ok(v) = axum::http::HeaderValue::from_str(&disposicion) {
+                cabeceras.insert(axum::http::header::CONTENT_DISPOSITION, v);
+            }
+            (cabeceras, bytes).into_response()
+        }
+        // No distingue «no existe» de «no se pudo traer»: el estado ya se lo dijo
+        // el historial a quien atiende, y aquí un 404 es la respuesta honesta a
+        // «deme los bytes» cuando no hay bytes.
+        Ok(None) => (StatusCode::NOT_FOUND, "ese archivo no está guardado").into_response(),
+        Err(e) => fallo("leer el archivo", e),
     }
 }
 

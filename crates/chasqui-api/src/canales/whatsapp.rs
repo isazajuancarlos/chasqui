@@ -12,10 +12,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-use chasqui_dominio::mensaje::Clase;
+use chasqui_dominio::mensaje::{Clase, Medio, Ubicacion};
 use chasqui_dominio::{Canal, MensajeEntrante, MensajeSaliente};
 
-use super::{AdaptadorCanal, ErrorCanal};
+use super::{AdaptadorCanal, Descarga, ErrorCanal};
 
 /// Máximo de un mensaje de texto en WhatsApp. Lo fija Meta.
 const LIMITE_TEXTO: usize = 4096;
@@ -52,6 +52,19 @@ fn momento(m: &Value) -> Result<DateTime<Utc>, ErrorCanal> {
         .ok_or_else(|| forma(format!("«timestamp» fuera de rango: {segundos}")))
 }
 
+/// Una cadena de dentro del mensaje, o `None` si no está o está vacía.
+///
+/// Vacía cuenta como ausente **a propósito**: un `filename` de "" guardado como
+/// `Some("")` produce después un archivo sin nombre que nadie sabe de dónde
+/// salió. Si no hay dato, que se diga que no hay (directiva 20).
+fn cadena(m: &Value, puntero: &str) -> Option<String> {
+    m.pointer(puntero)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Traduce un mensaje de WhatsApp a su clase.
 ///
 /// Lo que no se sabe leer se marca `NoSoportado` con el nombre que le da Meta, y
@@ -80,6 +93,39 @@ fn clase(m: &Value) -> Clase {
                 None => Clase::NoSoportado("interactive desconocido".into()),
             }
         }
+        // La ubicación NO se descarga: las coordenadas vienen en el webhook.
+        //
+        // Si faltan, esto NO inventa un 0,0 —que es una isla del golfo de
+        // Guinea y una dirección de reparto perfectamente creíble para un
+        // programa—: se cae a «no soportado» y va a una persona (directiva 20).
+        // Es también la sonda que avisa si Meta cambia el nombre del campo.
+        "location" => {
+            let lat = m.pointer("/location/latitude").and_then(Value::as_f64);
+            let lon = m.pointer("/location/longitude").and_then(Value::as_f64);
+            match (lat, lon) {
+                (Some(latitud), Some(longitud)) => Clase::Ubicacion(Ubicacion {
+                    latitud,
+                    longitud,
+                    nombre: cadena(m, "/location/name"),
+                    direccion: cadena(m, "/location/address"),
+                }),
+                _ => Clase::NoSoportado("location sin coordenadas".into()),
+            }
+        }
+        // Los medios traen un identificador, no los bytes. Sin identificador el
+        // archivo es irrecuperable, así que un medio sin `id` tampoco se
+        // maquilla: se nombra y va a una persona.
+        "image" | "audio" | "video" | "document" | "sticker" | "voice" => {
+            match cadena(m, &format!("/{tipo}/id")) {
+                Some(id) => Clase::Medio(Medio {
+                    tipo: tipo.to_string(),
+                    id,
+                    mime: cadena(m, &format!("/{tipo}/mime_type")),
+                    nombre_archivo: cadena(m, &format!("/{tipo}/filename")),
+                }),
+                None => Clase::NoSoportado(format!("{tipo} sin id")),
+            }
+        }
         // Respuesta rápida de una plantilla: viene con otra forma.
         "button" => Clase::Interactivo {
             id: m.pointer("/button/payload").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -97,6 +143,64 @@ impl AdaptadorCanal for WhatsApp {
 
     fn limite_texto(&self) -> usize {
         LIMITE_TEXTO
+    }
+
+    /// Baja un medio. **Dos llamadas, y la segunda no va a Graph.**
+    ///
+    /// La primera cambia el identificador por una URL de un servidor de
+    /// descargas de Meta, que **caduca en minutos**: por eso esto se llama al
+    /// recibir el mensaje y no cuando el agente abre el panel, donde la URL ya
+    /// estaría muerta.
+    ///
+    /// La segunda llamada **también lleva el token**, aunque la URL parezca
+    /// completa: sin la cabecera devuelve 401. Es de las cosas que solo se
+    /// aprenden probando.
+    async fn descargar_medio(
+        &self,
+        token: &str,
+        id: &str,
+        tope: usize,
+    ) -> Result<Descarga, ErrorCanal> {
+        let ficha: Value = self
+            .cliente
+            .get(format!("{}/{id}", self.graph))
+            .bearer_auth(token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let url = ficha
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| forma(format!("la ficha del medio {id} no trae «url»")))?;
+
+        // El tamaño que declara Meta se mira ANTES de bajar nada: negarse
+        // después de haberse tragado 90 MB no evita el gasto, solo el guardado.
+        if let Some(tamano) = ficha.get("file_size").and_then(Value::as_u64) {
+            if tamano > tope as u64 {
+                return Err(ErrorCanal::DemasiadoGrande { tamano, tope });
+            }
+        }
+
+        let respuesta =
+            self.cliente.get(url).bearer_auth(token).send().await?.error_for_status()?;
+
+        let mime = respuesta
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+
+        // Y otra vez al final, porque `file_size` puede no venir: el tope tiene
+        // que valer también cuando Meta no dice cuánto pesa.
+        let bytes = respuesta.bytes().await?;
+        if bytes.len() > tope {
+            return Err(ErrorCanal::DemasiadoGrande { tamano: bytes.len() as u64, tope });
+        }
+
+        Ok(Descarga { bytes: bytes.to_vec(), mime })
     }
 
     fn entrantes(&self, cuerpo: &Value) -> Result<Vec<MensajeEntrante>, ErrorCanal> {
@@ -358,7 +462,13 @@ mod pruebas {
     }
 
     #[test]
-    fn una_nota_de_voz_se_marca_no_soportada_en_vez_de_perderse() {
+    fn una_nota_de_voz_conserva_su_billete_en_vez_de_perderse() {
+        // Esta prueba fijaba lo contrario hasta el 2026-08-02: comprobaba que un
+        // audio se marcaba `NoSoportado("audio")`. Aquello parecía prudente y era
+        // una fuga — el identificador se tiraba, y con la Cloud API no hay
+        // bandeja de WhatsApp donde el negocio pueda ir a buscar el archivo. Lo
+        // que se conserva del comportamiento viejo es lo importante: sigue sin
+        // haber texto que buscar, así que sigue yendo a una persona.
         let cuerpo = json!({
           "object": "whatsapp_business_account",
           "entry": [{ "changes": [{ "value": {
@@ -370,7 +480,9 @@ mod pruebas {
           }}]}]
         });
         let m = adaptador().entrantes(&cuerpo).unwrap();
-        assert_eq!(m[0].clase, Clase::NoSoportado("audio".into()));
+        let Clase::Medio(medio) = &m[0].clase else { panic!("{:?}", m[0].clase) };
+        assert_eq!(medio.id, "media-1");
+        assert_eq!(m[0].clase.texto(), None, "un audio no se busca en la base de conocimiento");
     }
 
     #[test]
@@ -433,5 +545,121 @@ mod pruebas {
     fn un_cuerpo_vacio_no_es_un_panico() {
         let cuerpo = json!({ "object": "whatsapp_business_account", "entry": [] });
         assert!(adaptador().entrantes(&cuerpo).unwrap().is_empty());
+    }
+
+    #[test]
+    fn una_ubicacion_trae_sus_coordenadas_y_no_se_pierde() {
+        // Las coordenadas vienen en el propio webhook: no hay nada que
+        // descargar, y hasta el 2026-08-02 se tiraban.
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.U", "timestamp": "1785000000",
+              "type": "location",
+              "location": { "latitude": 6.038, "longitude": -75.702, "name": "Casa", "address": "Cra 50 #10-20" }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        let Clase::Ubicacion(u) = &m[0].clase else { panic!("no la leyó: {:?}", m[0].clase) };
+        assert_eq!(u.latitud, 6.038);
+        assert_eq!(u.longitud, -75.702);
+        assert_eq!(u.nombre.as_deref(), Some("Casa"));
+        assert_eq!(u.direccion.as_deref(), Some("Cra 50 #10-20"));
+    }
+
+    #[test]
+    fn una_ubicacion_sin_coordenadas_no_se_inventa_un_cero_cero() {
+        // 0,0 es una isla del golfo de Guinea, y para un programa es una
+        // dirección de reparto perfectamente creíble. Directiva 20: se dice que
+        // no se sabe.
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.U2", "timestamp": "1785000000",
+              "type": "location", "location": { "name": "Casa" }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        assert_eq!(m[0].clase, Clase::NoSoportado("location sin coordenadas".into()));
+    }
+
+    #[test]
+    fn una_foto_conserva_el_identificador_con_el_que_se_recupera() {
+        // Sin el `id` el archivo es irrecuperable para siempre: era la fuga.
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.F", "timestamp": "1785000000",
+              "type": "image",
+              "image": { "id": "MEDIA-123", "mime_type": "image/jpeg", "sha256": "abc" }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        let Clase::Medio(medio) = &m[0].clase else { panic!("no la leyó: {:?}", m[0].clase) };
+        assert_eq!(medio.tipo, "image");
+        assert_eq!(medio.id, "MEDIA-123");
+        assert_eq!(medio.mime.as_deref(), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn un_documento_conserva_el_nombre_que_le_puso_quien_lo_manda() {
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.D", "timestamp": "1785000000",
+              "type": "document",
+              "document": { "id": "MEDIA-9", "mime_type": "application/pdf", "filename": "formula.pdf" }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        let Clase::Medio(medio) = &m[0].clase else { panic!("{:?}", m[0].clase) };
+        assert_eq!(medio.nombre_archivo.as_deref(), Some("formula.pdf"));
+    }
+
+    #[test]
+    fn un_medio_sin_id_se_denuncia_en_vez_de_fingir_que_llegó() {
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.X", "timestamp": "1785000000",
+              "type": "audio", "audio": { "mime_type": "audio/ogg" }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        assert_eq!(m[0].clase, Clase::NoSoportado("audio sin id".into()));
+    }
+
+    #[test]
+    fn el_nombre_de_archivo_vacio_cuenta_como_ausente() {
+        // Un `Some("")` produce después un archivo sin nombre que nadie sabe de
+        // dónde salió.
+        let cuerpo = json!({
+          "object": "whatsapp_business_account",
+          "entry": [{ "changes": [{ "value": {
+            "metadata": { "phone_number_id": "PNID-1" },
+            "messages": [{
+              "from": "573001", "id": "wamid.V", "timestamp": "1785000000",
+              "type": "document", "document": { "id": "M-1", "filename": "   " }
+            }]
+          }}]}]
+        });
+        let m = adaptador().entrantes(&cuerpo).unwrap();
+        let Clase::Medio(medio) = &m[0].clase else { panic!("{:?}", m[0].clase) };
+        assert_eq!(medio.nombre_archivo, None);
     }
 }

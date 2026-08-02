@@ -17,14 +17,51 @@ use crate::canal::Canal;
 /// vacío**. Un texto vacío se responde con el guion de «no entendí» y el cliente
 /// nunca se entera de que le mandaron una nota de voz; nombrarlo deja que la
 /// atención decida escalar a una persona, que es lo correcto.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Clase {
     Texto(String),
     /// Botón o respuesta de lista: trae el identificador que el cliente configuró.
     Interactivo { id: String, titulo: String },
-    /// Llegó algo que este canal admite y nosotros todavía no: imagen, audio,
-    /// ubicación, documento. Guarda el nombre que le da Meta.
+    /// Una ubicación compartida. **No hay nada que descargar**: las coordenadas
+    /// vienen en el propio webhook, así que tirarlas era regalar un dato que ya
+    /// nos habían dado.
+    Ubicacion(Ubicacion),
+    /// Una foto, una nota de voz, un vídeo, un documento. **Aquí solo viaja el
+    /// billete**: Meta manda un identificador, no los bytes, y bajarlos es cosa
+    /// de la capa que habla por la red. El dominio no descarga nada.
+    Medio(Medio),
+    /// Llegó algo que este canal admite y nosotros todavía no. Guarda el nombre
+    /// que le da Meta, que es lo que hace falta para soportarlo mañana.
     NoSoportado(String),
+}
+
+/// Dónde está quien escribe, tal como lo mandó.
+///
+/// Las coordenadas son `f64` y no cadenas: son números, y quien las reciba va a
+/// querer calcular con ellas —una distancia, una zona de reparto—. El precio es
+/// que `Clase` ya no puede derivar `Eq`, que en un `f64` no significaría nada
+/// útil de todos modos.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ubicacion {
+    pub latitud: f64,
+    pub longitud: f64,
+    /// Cómo llama Meta al sitio, si lo sabe. Es opcional de verdad: compartir la
+    /// ubicación en vivo no trae nombre.
+    pub nombre: Option<String>,
+    pub direccion: Option<String>,
+}
+
+/// El billete de un archivo que está en los servidores de Meta.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Medio {
+    /// `image`, `audio`, `video`, `document`, `sticker`: el nombre de Meta.
+    pub tipo: String,
+    /// El identificador con el que se pide el archivo. **Sin esto el archivo se
+    /// pierde para siempre**, y esa fue exactamente la fuga que se tapó.
+    pub id: String,
+    pub mime: Option<String>,
+    /// El nombre que le puso quien lo mandó. Solo los documentos lo traen.
+    pub nombre_archivo: Option<String>,
 }
 
 impl Clase {
@@ -34,7 +71,11 @@ impl Clase {
         match self {
             Clase::Texto(t) => Some(t),
             Clase::Interactivo { titulo, .. } => Some(titulo),
-            Clase::NoSoportado(_) => None,
+            // Ni una ubicación ni una foto se buscan en la base de conocimiento:
+            // no hay pregunta que casar, y casar una dirección contra las
+            // preguntas frecuentes daría una respuesta al azar. Van a una
+            // persona, que es quien puede mirarlas.
+            Clase::Ubicacion(_) | Clase::Medio(_) | Clase::NoSoportado(_) => None,
         }
     }
 
@@ -54,7 +95,30 @@ impl Clase {
         match self {
             Clase::Texto(t) => t.clone(),
             Clase::Interactivo { titulo, .. } => titulo.clone(),
+            Clase::Ubicacion(u) => u.descripcion(),
+            Clase::Medio(m) => describir_no_soportado(&m.tipo),
             Clase::NoSoportado(tipo) => describir_no_soportado(tipo),
+        }
+    }
+}
+
+impl Ubicacion {
+    /// Lo que ve quien atiende. Lleva **las coordenadas en claro**: son el dato,
+    /// y un nombre de sitio sin ellas no sirve para llevarle nada a nadie.
+    ///
+    /// No se compone aquí ningún enlace a un mapa: eso es una decisión de
+    /// presentación y de qué proveedor usa el cliente, y el dominio no elige
+    /// proveedor por él.
+    pub fn descripcion(&self) -> String {
+        let dónde = match (&self.nombre, &self.direccion) {
+            (Some(n), Some(d)) if n != d => format!("{n} — {d}"),
+            (Some(t), _) | (_, Some(t)) => t.clone(),
+            (None, None) => String::new(),
+        };
+        if dónde.is_empty() {
+            format!("[una ubicación: {}, {}]", self.latitud, self.longitud)
+        } else {
+            format!("[una ubicación: {dónde} ({}, {})]", self.latitud, self.longitud)
         }
     }
 }
@@ -85,7 +149,11 @@ fn describir_no_soportado(tipo: &str) -> String {
 }
 
 /// Un mensaje que entra, ya traducido del dialecto de su canal.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Sin `Eq` desde que una ubicación trae coordenadas: comparar dos `f64` por
+/// igualdad exacta no significa nada, y fingir que sí con `Eq` sería peor que
+/// no tenerlo. `PartialEq` basta para las pruebas, que es donde se usa.
+#[derive(Debug, Clone, PartialEq)]
 pub struct MensajeEntrante {
     pub canal: Canal,
     /// La cuenta NUESTRA que lo recibió: `phone_number_id` en WhatsApp, el id de
@@ -155,6 +223,57 @@ mod pruebas {
         let d = Clase::NoSoportado("text sin body".into()).descripcion();
         assert!(d.contains("text sin body"), "perdió el tipo: {d}");
         assert!(d.contains("no sabe leer"), "no admite que no lo sabe: {d}");
+    }
+
+    fn ubicacion(nombre: Option<&str>, direccion: Option<&str>) -> Clase {
+        Clase::Ubicacion(Ubicacion {
+            latitud: 6.038,
+            longitud: -75.702,
+            nombre: nombre.map(str::to_string),
+            direccion: direccion.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn una_ubicacion_siempre_enseña_las_coordenadas() {
+        // Un nombre de sitio sin coordenadas no sirve para llevarle nada a
+        // nadie, y «Casa» es el nombre que le pone medio mundo a su ubicación.
+        for clase in [
+            ubicacion(Some("Casa"), Some("Cra 50 #10-20")),
+            ubicacion(Some("Casa"), None),
+            ubicacion(None, None),
+        ] {
+            let d = clase.descripcion();
+            assert!(d.contains("6.038"), "perdió la latitud: {d}");
+            assert!(d.contains("-75.702"), "perdió la longitud: {d}");
+        }
+    }
+
+    #[test]
+    fn una_ubicacion_sin_nombre_no_deja_un_hueco_ni_un_guion_suelto() {
+        // Compartir la ubicación en vivo no manda nombre. El texto tiene que
+        // seguir leyéndose como una frase, no como una plantilla a medio rellenar.
+        assert_eq!(ubicacion(None, None).descripcion(), "[una ubicación: 6.038, -75.702]");
+    }
+
+    #[test]
+    fn una_ubicacion_no_repite_el_nombre_cuando_es_igual_a_la_direccion() {
+        let d = ubicacion(Some("Cra 50 #10-20"), Some("Cra 50 #10-20")).descripcion();
+        assert_eq!(d.matches("Cra 50 #10-20").count(), 1, "lo dijo dos veces: {d}");
+    }
+
+    #[test]
+    fn un_medio_se_nombra_por_lo_que_es() {
+        let foto = Clase::Medio(Medio {
+            tipo: "image".into(),
+            id: "MEDIA-1".into(),
+            mime: Some("image/jpeg".into()),
+            nombre_archivo: None,
+        });
+        assert_eq!(foto.descripcion(), "[una foto]");
+        // Y sigue sin haber nada que buscar en la base de conocimiento: quien
+        // puede mirar una foto es una persona.
+        assert_eq!(foto.texto(), None);
     }
 
     #[test]

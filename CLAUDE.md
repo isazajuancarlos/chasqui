@@ -136,6 +136,27 @@ salvo `CHASQUI_SIN_TLS=1`.
 `Cargo.toml` **por commit inmutable y no por tag**, y es el mismo `rev` que usa
 `medico`.
 
+**Los archivos que manda quien escribe —fotos, notas de voz, documentos— viven
+DENTRO de la base**, en la tabla `medio`, no en una carpeta al lado. La razón no
+es comodidad: con archivos sueltos harían falta dos mecanismos nuevos, uno que
+los borre cuando alguien ejerce su derecho de supresión y otro que los copie al
+respaldar. Como filas, `olvidar`, `purgar` y `respaldar` (que es `VACUUM INTO`)
+siguen siendo correctos sin tocarlos —hay pruebas que lo fijan—, y la frase que
+se vende, «una base por instancia», sigue siendo literal. El precio es el tope
+de tamaño (`Servicio::tope_medio`), y **lo que no cabe se anota diciendo que no
+cabe**, nunca se descarta callando.
+
+Dos cosas del camino que no se ven leyendo:
+
+- **La descarga NO va en el camino del webhook.** Meta reintenta si no recibe el
+  200 en segundos; bajar allí un vídeo haría que el mismo mensaje se atendiera
+  dos y tres veces. La fila nace `pendiente` y otra tarea la completa.
+- **`GET /api/medios/{id}` sirve un archivo que eligió un desconocido**, tipo
+  incluido. Solo va `inline` lo que es imagen, audio o vídeo; lo demás se
+  descarga, y todo lleva `Content-Security-Policy: sandbox`. Sin eso, un cliente
+  manda un `.html` y su JavaScript corre en el origen del panel con la sesión
+  del agente.
+
 **Migraciones**: `crates/chasqui-datos/migraciones/*.sql`, empotradas con
 `sqlx::migrate!` y aplicadas al abrir. Hacen falta las features `migrate` **y**
 `macros` de SQLx: con solo `migrate` compila el motor y no el macro, y el error
