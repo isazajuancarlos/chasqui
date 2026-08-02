@@ -140,6 +140,13 @@ mismas tres rutas (`POST /web/conversacion`, `POST /web/mensaje`,
 `GET /web/mensajes`) y dice de qué sitio es con la cabecera `X-Chasqui-Sitio`,
 porque no manda `Origin`.
 
+El aspecto se comprueba con `herramientas/capturar-widget.sh`, que monta una
+página **hostil a propósito** —CSS que fuerza letra serif granate, botones
+amarillos y campos negros— y saca tres fotos: escritorio, móvil y tema oscuro. No
+es ceremonia: los dos únicos fallos que ninguna prueba automática vio —el chat
+saliendo oscuro sobre una web clara, y un `<form>` que navegaba la página del
+cliente— aparecieron ahí.
+
 Dos cosas que conviene saber antes de instalarlo:
 
 - **Si su sitio tiene CSP**, hay que dejarle sitio al chat:
