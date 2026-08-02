@@ -12,8 +12,10 @@
 //   node herramientas/probar-widget.mjs http://127.0.0.1:8787 https://acme.com
 //
 // ALCANCE, para que el verde no diga más de lo que sabe: comprueba que el widget
-// se monta, se abre, envía y pinta lo que el servidor devuelve. NO comprueba cómo
-// se ve —jsdom no pinta— ni que el identificador sobreviva a una recarga.
+// se monta, se abre, envía, pinta lo que el servidor devuelve, y que al volver a
+// cargar la página reutiliza la conversación en vez de abrir otra. NO comprueba
+// CÓMO SE VE —jsdom no pinta— ni las reglas propias de un navegador de verdad
+// (la petición previa de CORS, o su política de almacenamiento en modo privado).
 //
 // El segundo argumento es el origen dado de alta: jsdom lo usa como la URL de la
 // página, así que el navegador manda ese `Origin`, que es justo lo que se quiere
@@ -87,21 +89,16 @@ await new Promise((r) => setTimeout(r, 600));
 
 const panel = raiz.querySelector('.panel');
 comprobar('al pulsar se abre', panel.hasAttribute('data-abierto'));
-// LO QUE ESTE GUION NO PUEDE DECIR.
-//
-// El identificador se guarda en `localStorage` para que quien vuelva mañana
-// encuentre su hilo. En jsdom no queda guardado —y aun así la conversación
-// funciona, porque el widget cae a memoria—, pero **eso no es evidencia sobre un
-// navegador de verdad**: jsdom no lo es. Así que se informa y no se falla: dar
-// esto por roto sería tan falso como darlo por bueno, y confundir «no pude
-// mirar» con «vi algo malo» manda a arreglar lo que no está mal.
-//
-// PENDIENTE: comprobarlo en un navegador de verdad, recargando la página.
-const guardado = !!dom.window.localStorage.getItem('chasqui:' + BASE);
-console.log(
-  `  ~    persistencia entre recargas: ${guardado ? 'guardada' : 'NO VERIFICADA aquí'}` +
-    ' (jsdom no decide esto; hace falta un navegador)',
-);
+// Se espera a que el identificador exista antes de mirarlo. La primera versión
+// de esta comprobación miraba 600 ms después del clic y decía que no se guardaba:
+// medía antes de que la petición volviera. Un negativo solo vale si el camino que
+// lo produciría llegó a ejecutarse.
+let id = null;
+for (let i = 0; i < 40 && !id; i++) {
+  await new Promise((r) => setTimeout(r, 100));
+  id = dom.window.localStorage.getItem('chasqui:' + BASE);
+}
+comprobar('el servidor emitió el identificador y el navegador lo guardó', !!id);
 
 // Y se escribe.
 raiz.querySelector('.pie input').value = 'cuanto vale';
@@ -122,5 +119,52 @@ comprobar('cada lado se pinta del suyo', raiz.querySelector('.mio') && raiz.quer
 comprobar('no hubo errores durante la conversación', errores.length === 0, errores.join(' | '));
 
 dom.window.close();
+
+// --- Y AHORA LA RECARGA ---
+//
+// Es la mitad que faltaba: que el identificador se ESCRIBA no sirve de nada si al
+// volver no se LEE. Se abre una ventana nueva con el mismo almacenamiento —que es
+// lo que ve el navegador al recargar— y se comprueba que el widget retoma la
+// conversación en vez de abrir otra, y que repinta lo dicho.
+console.log('\n  --- se recarga la página ---');
+
+const dom2 = new JSDOM(
+  `<!doctype html><html><body><script src="${BASE}/web/widget.js"></script></body></html>`,
+  {
+    url: SITIO + '/',
+    runScripts: 'dangerously',
+    resources: { fetch() { return Promise.resolve(Buffer.from(guion)); } },
+    virtualConsole: consola,
+    beforeParse(win) {
+      win.fetch = (url, opciones = {}) =>
+        fetch(url, { ...opciones, headers: { ...(opciones.headers || {}), origin: SITIO } });
+      // El almacenamiento que sobrevive a la recarga.
+      win.localStorage.setItem('chasqui:' + BASE, id);
+    },
+  },
+);
+
+await new Promise((r) => dom2.window.addEventListener('load', r));
+await new Promise((r) => setTimeout(r, 200));
+
+const raiz2 = dom2.window.document.querySelector('[data-chasqui]').shadowRoot;
+raiz2.querySelector('.boton').dispatchEvent(new dom2.window.MouseEvent('click', { bubbles: true }));
+
+let devuelto = [];
+for (let i = 0; i < 40; i++) {
+  await new Promise((r) => setTimeout(r, 150));
+  devuelto = [...raiz2.querySelectorAll('.linea')].map((l) => l.textContent);
+  if (devuelto.length >= 3) break;
+}
+
+console.log('  hilo tras recargar:', JSON.stringify(devuelto));
+comprobar('el hilo sobrevive a la recarga', devuelto.length === lineas.length);
+comprobar('y es el mismo, no uno nuevo', devuelto[0] === 'cuanto vale');
+comprobar(
+  'no se abrió una conversación distinta',
+  dom2.window.localStorage.getItem('chasqui:' + BASE) === id,
+);
+
+dom2.window.close();
 console.log(fallos.length === 0 ? '\nEL WIDGET FUNCIONA' : `\nFALLARON ${fallos.length}`);
 process.exit(fallos.length === 0 ? 0 : 1);

@@ -201,6 +201,52 @@ async fn un_visitante_de_la_web_conversa_y_recibe_el_aviso_antes_que_la_respuest
     assert!(leer(&instancia.base, &visitante, ultimo).await.is_empty());
 }
 
+/// La petición previa, EXACTAMENTE como la manda un navegador.
+///
+/// Esto es lo que decide si el chat funciona o no en una página de verdad, y no
+/// se ve en ninguna otra prueba: las demás mandan `Origin` a mano y el navegador,
+/// además, pregunta ANTES si puede. Si la previa falla, el navegador ni siquiera
+/// hace la petición, y en el servidor del cliente no queda ni rastro — el fallo
+/// solo aparece en la consola de quien visita la página.
+#[tokio::test]
+async fn la_peticion_previa_del_navegador_deja_pasar_lo_que_el_widget_manda() {
+    let instancia = instancia("previa").await;
+    let cliente = reqwest::Client::new();
+
+    let previa = cliente
+        .request(reqwest::Method::OPTIONS, format!("{}/web/mensaje", instancia.base))
+        .header("origin", SITIO)
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type,x-chasqui-visitante")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(previa.status(), 204);
+    let h = previa.headers();
+    assert_eq!(h.get("access-control-allow-origin").unwrap(), SITIO);
+    let permitidas = h.get("access-control-allow-headers").unwrap().to_str().unwrap();
+    assert!(permitidas.contains("content-type"), "{permitidas}");
+    assert!(permitidas.contains("x-chasqui-visitante"), "{permitidas}");
+    assert!(
+        h.get("access-control-allow-methods").unwrap().to_str().unwrap().contains("POST"),
+        "el navegador no dejaría enviar"
+    );
+    // Sin esto, cada mensaje del visitante son DOS peticiones al servidor.
+    assert!(h.contains_key("access-control-max-age"), "la previa se repetiría sin parar");
+
+    // Y a un origen ajeno se le niega en la previa: el navegador para ahí.
+    let ajena = cliente
+        .request(reqwest::Method::OPTIONS, format!("{}/web/mensaje", instancia.base))
+        .header("origin", "https://elmalo.com")
+        .header("access-control-request-method", "POST")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ajena.status(), 403);
+    assert!(ajena.headers().get("access-control-allow-origin").is_none());
+}
+
 #[tokio::test]
 async fn un_sitio_que_no_esta_dado_de_alta_no_entra() {
     let instancia = instancia("sitio-ajeno").await;

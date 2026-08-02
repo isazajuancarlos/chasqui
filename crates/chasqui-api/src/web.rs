@@ -162,11 +162,20 @@ async fn sitio(servicio: &Servicio, cabeceras: &HeaderMap) -> Result<cuenta::Cue
 /// Se refleja el origen concreto y **nunca `*`**: con el comodín, cualquier
 /// página del mundo podría leer las respuestas, y por ahí se leen conversaciones
 /// ajenas si alguien consigue un identificador de visitante.
-fn cors(origen: &str) -> [(header::HeaderName, String); 3] {
+fn cors(origen: &str) -> [(header::HeaderName, String); 4] {
     [
         (header::ACCESS_CONTROL_ALLOW_ORIGIN, origen.to_string()),
         (header::ACCESS_CONTROL_ALLOW_HEADERS, format!("content-type, {CABECERA_VISITANTE}, {CABECERA_SITIO}")),
         (header::ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, OPTIONS".to_string()),
+        // Diez minutos de memoria para la petición previa. Sin esto el navegador
+        // la repite cada pocos segundos, y **cada mensaje del visitante son dos
+        // peticiones** al servidor del cliente en vez de una. No es cosmético:
+        // este canal lo usa cualquiera que entre a su página.
+        //
+        // Diez minutos y no un día: es el tiempo que tarda en surtir efecto dar
+        // de baja el sitio desde el panel, y que apagar el chat tarde un día en
+        // notarse convertiría el interruptor en una promesa a medias.
+        (header::ACCESS_CONTROL_MAX_AGE, "600".to_string()),
     ]
 }
 
@@ -423,6 +432,35 @@ mod pruebas {
         let c = cors("https://acme.com");
         assert_eq!(c[0].1, "https://acme.com");
         assert!(c.iter().all(|(_, v)| v != "*"), "un comodín deja leer a cualquier página");
+    }
+
+    #[test]
+    fn las_cabeceras_permitidas_cubren_las_que_el_widget_manda() {
+        // El widget y esta lista viven en archivos distintos y en lenguajes
+        // distintos. Si divergen, el navegador bloquea la petición y en el
+        // servidor NO se ve nada: el fallo solo aparece en la consola de quien
+        // visita la página del cliente, que es donde nadie mira.
+        let widget = include_str!("widget.js");
+        let permitidas = cors("https://acme.com")[1].1.clone();
+        for cabecera in ["content-type", CABECERA_VISITANTE] {
+            assert!(
+                widget.contains(cabecera),
+                "el widget dejó de mandar «{cabecera}»; sobra en la lista de CORS"
+            );
+            assert!(
+                permitidas.contains(cabecera),
+                "el widget manda «{cabecera}» y el CORS no la permite"
+            );
+        }
+    }
+
+    #[test]
+    fn la_previa_no_se_recuerda_mas_de_lo_que_tarda_en_apagarse_el_chat() {
+        // Si `max-age` fuera de horas, dar de baja el sitio en el panel tardaría
+        // horas en notarse y el interruptor sería una promesa a medias.
+        let max: u64 = cors("https://acme.com")[3].1.parse().unwrap();
+        assert!(max > 0, "sin memoria, cada mensaje son dos peticiones");
+        assert!(max <= 900, "el chat tardaría demasiado en apagarse al darlo de baja");
     }
 
     #[test]
