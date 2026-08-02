@@ -1046,3 +1046,157 @@ async fn un_flujo_con_una_clave_inventada_se_rechaza_al_cargarlo() {
     let texto = String::from_utf8_lossy(&listado.stdout);
     assert!(texto.contains("no hay flujos"), "quedó un flujo roto: {texto}");
 }
+
+/// Configurar un flujo DESDE EL PANEL y que el bot lo atienda en seguida.
+///
+/// Es lo que separa «hay una API de flujos» de «el cliente puede configurar su
+/// bot sin llamarnos». Hasta que esto pasa, tomar un pedido exige entrar por SSH
+/// a editar un JSON — y entonces cada cambio de una pregunta es una llamada a
+/// nosotros, que es lo que convierte el producto en servicio.
+#[tokio::test]
+async fn el_panel_configura_un_flujo_y_el_bot_lo_atiende_en_seguida() {
+    let (graph, bitacora) = graph_falso().await;
+    let instancia = instancia("panel-flujo", &graph).await;
+    let cliente = navegador();
+    cliente
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+
+    // 1. Un flujo mal configurado se rechaza, Y EL MOTIVO VUELVE. Sin eso, quien
+    //    lo escribe en el formulario prueba a ciegas en su propio panel.
+    let malo = cliente
+        .post(format!("{}/api/flujos", instancia.base))
+        .json(&json!({
+            "titulo": "Roto",
+            "disparadores": ["hacer pedido"],
+            "confirmacion": "Anotado para {telefono}.",
+            "pasos": [{"clave": "producto", "pregunta": "¿Qué producto?"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(malo.status(), 400);
+    let dicho: Value = malo.json().await.unwrap();
+    let motivo = dicho["error"].as_str().unwrap();
+    assert!(motivo.contains("telefono"), "el panel no sabría qué arreglar: {motivo}");
+
+    // Y un tipo de dato inventado tampoco pasa por texto libre.
+    let tipo_malo = cliente
+        .post(format!("{}/api/flujos", instancia.base))
+        .json(&json!({
+            "titulo": "Tipo raro", "disparadores": ["x"], "confirmacion": "ok",
+            "pasos": [{"clave": "cuando", "pregunta": "¿Cuándo?", "tipo_dato": "fecha"}]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tipo_malo.status(), 400);
+
+    // 2. Uno bueno se crea.
+    let creado = cliente
+        .post(format!("{}/api/flujos", instancia.base))
+        .json(&json!({
+            "titulo": "Toma de pedido",
+            "disparadores": ["quiero hacer un pedido"],
+            "confirmacion": "Anotado: {cantidad} de {producto}.",
+            "pasos": [
+                {"clave": "producto", "pregunta": "¿Qué producto desea?"},
+                {"clave": "cantidad", "pregunta": "¿Cuántas unidades?", "tipo_dato": "numero"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(creado.status(), 201);
+
+    // 3. El bot lo atiende YA, sin reiniciar nada.
+    escribe_un_cliente(&instancia.base, "f1", "573009", "quiero hacer un pedido").await;
+    esperar(&bitacora, 2).await;
+    let dichos = textos(&bitacora);
+    assert!(dichos[1].starts_with("¿Qué producto desea?"), "{dichos:?}");
+
+    // 4. El panel lo ve, y SABE si está encendido: un interruptor cuyo estado se
+    //    adivina miente la mitad de las veces.
+    let lista: Value = cliente
+        .get(format!("{}/api/flujos", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let f = &lista.as_array().unwrap()[0];
+    assert_eq!(f["titulo"], "Toma de pedido");
+    assert_eq!(f["activo"], true);
+    assert_eq!(f["pasos"][1]["tipo_dato"], "numero");
+    let id = f["id"].as_i64().unwrap();
+
+    // 5. Apagarlo lo apaga de verdad: el bot deja de arrancarlo, y el panel
+    //    sigue viéndolo para poder volver a encenderlo.
+    let apagado = cliente
+        .patch(format!("{}/api/flujos/{id}", instancia.base))
+        .json(&json!({ "activa": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(apagado.status(), 204);
+
+    let tras: Value = cliente
+        .get(format!("{}/api/flujos", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(tras.as_array().unwrap()[0]["activo"], false);
+
+    escribe_un_cliente(&instancia.base, "f2", "573010", "quiero hacer un pedido").await;
+    esperar(&bitacora, 4).await;
+    let ahora = textos(&bitacora);
+    assert!(
+        !ahora[3].starts_with("¿Qué producto desea?"),
+        "un flujo apagado siguió atendiendo: {ahora:?}"
+    );
+
+    // 6. Y borrarlo. Un id que no existe NO responde 204: quien lo borra desde
+    //    el panel tiene que enterarse de que no borró nada.
+    assert_eq!(
+        cliente.delete(format!("{}/api/flujos/{id}", instancia.base)).send().await.unwrap().status(),
+        204
+    );
+    assert_eq!(
+        cliente.delete(format!("{}/api/flujos/{id}", instancia.base)).send().await.unwrap().status(),
+        404
+    );
+}
+
+/// Sin sesión, la configuración de flujos y los pedidos están cerrados.
+///
+/// Los pedidos llevan la dirección de entrega de quien compró: son de lo más
+/// sensible que guarda una instalación.
+#[tokio::test]
+async fn los_flujos_y_los_pedidos_no_se_ven_sin_sesion() {
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("flujos-sin-sesion", &graph).await;
+    let cliente = reqwest::Client::new();
+
+    for (metodo, ruta) in [
+        (reqwest::Method::GET, "/api/flujos"),
+        (reqwest::Method::POST, "/api/flujos"),
+        (reqwest::Method::GET, "/api/pedidos"),
+        (reqwest::Method::DELETE, "/api/flujos/1"),
+        (reqwest::Method::PATCH, "/api/flujos/1"),
+    ] {
+        let r = cliente
+            .request(metodo.clone(), format!("{}{ruta}", instancia.base))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 401, "«{metodo} {ruta}» contestó sin sesión");
+    }
+}

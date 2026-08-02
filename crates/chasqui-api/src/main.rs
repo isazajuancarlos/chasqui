@@ -424,8 +424,14 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
             if flujos.is_empty() {
                 println!("no hay flujos configurados");
             }
-            for f in flujos {
-                println!("#{}  {}  ({} pasos)", f.id, f.titulo, f.pasos.len());
+            for (f, activo) in flujos {
+                println!(
+                    "#{}  {}  ({} pasos){}",
+                    f.id,
+                    f.titulo,
+                    f.pasos.len(),
+                    if activo { "" } else { "  [APAGADO]" }
+                );
                 for (i, p) in f.pasos.iter().enumerate() {
                     let tipo = p.tipo_dato.map_or("texto libre", |t| t.ranura());
                     println!("    {}. {} [{tipo}]  {}", i + 1, p.clave, p.pregunta);

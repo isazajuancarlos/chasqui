@@ -32,6 +32,11 @@ export const routes: Routes = [
     loadComponent: () => import('./conversacion').then((m) => m.ConversacionVista),
   },
   {
+    path: 'pedidos',
+    canActivate: [conSesion],
+    loadComponent: () => import('./pedidos').then((m) => m.Pedidos),
+  },
+  {
     path: 'configurar',
     canActivate: [conSesion],
     loadComponent: () => import('./configurar').then((m) => m.Configurar),

@@ -33,6 +33,36 @@ export interface Constancia {
   contacto: string; motivo: string; conversaciones: number;
   mensajes: number; ejecutada_en: string;
 }
+export interface Paso {
+  clave: string; pregunta: string;
+  /** `numero`, `correo`, `codigo`, o null para texto libre. */
+  tipo_dato: string | null;
+}
+export interface Flujo {
+  id: number; titulo: string; disparadores: string[];
+  confirmacion: string; pasos: Paso[];
+  /** Si el bot lo atiende. Viene del servidor: el interruptor del panel no
+   *  adivina su estado inicial. */
+  activo: boolean;
+}
+/**
+ * Lo que se MANDA al crear un flujo, que no es lo mismo que se recibe.
+ *
+ * Sin `id` —lo pone la base— y sin `activo` —un flujo nace encendido, y decidir
+ * eso desde el navegador sería el navegador mandando sobre una regla del
+ * servidor—. Escribirlo como un `Omit` de lo que se recibe habría obligado a
+ * inventar los dos campos para poder enviar.
+ */
+export interface FlujoNuevo {
+  titulo: string; disparadores: string[]; confirmacion: string; pasos: Paso[];
+}
+export interface Pedido {
+  id: number; titulo: string; contacto: string; conversacion_id: number;
+  /** Pares [clave, valor] EN EL ORDEN de los pasos. Un pedido leído al revés no
+   *  es el mismo pedido. */
+  campos: [string, string][];
+  creado_en: string;
+}
 export interface Cuenta {
   id: number; canal: string; id_externo: string; nombre: string; activa: boolean;
 }
@@ -88,6 +118,18 @@ export class Api {
   activarConsulta(id: number, activa: boolean) {
     return this.http.patch<void>(`/api/consultas/${id}`, { activa });
   }
+
+  flujos() { return this.http.get<Flujo[]>('/api/flujos'); }
+  /** Crea el flujo, o reemplaza entero el que tenga el mismo título. */
+  guardarFlujo(f: FlujoNuevo) {
+    return this.http.post<{ id: number }>('/api/flujos', f);
+  }
+  activarFlujo(id: number, activa: boolean) {
+    return this.http.patch<void>(`/api/flujos/${id}`, { activa });
+  }
+  borrarFlujo(id: number) { return this.http.delete<void>(`/api/flujos/${id}`); }
+
+  pedidos() { return this.http.get<Pedido[]>('/api/pedidos'); }
 
   cuentas() { return this.http.get<Cuenta[]>('/api/cuentas'); }
 

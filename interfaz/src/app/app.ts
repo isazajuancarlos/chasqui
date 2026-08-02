@@ -14,6 +14,7 @@ import { Api } from './api';
       <span class="marca">Chasqui</span>
       @if (api.yo(); as yo) {
         <a mat-button routerLink="/cola">Atención</a>
+        <a mat-button routerLink="/pedidos">Pedidos</a>
         <a mat-button routerLink="/configurar">Configuración</a>
         <span class="hueco"></span>
         <span class="quien">{{ yo.nombre || yo.correo }}</span>

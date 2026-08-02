@@ -15,19 +15,23 @@ use sqlx::{Row, SqlitePool};
 
 use crate::{Error, Resultado};
 
-/// Todos los flujos activos, con sus pasos en orden.
+/// Todos los flujos activos, con sus pasos en orden. Es lo que atiende el bot.
 pub async fn activos(pool: &SqlitePool) -> Resultado<Vec<Flujo>> {
-    cargar(pool, true).await
+    Ok(cargar(pool, true).await?.into_iter().map(|(f, _)| f).collect())
 }
 
-/// Todos, para el panel.
-pub async fn todos(pool: &SqlitePool) -> Resultado<Vec<Flujo>> {
+/// Todos, **con si están encendidos**, para el panel.
+///
+/// El estado viaja con el flujo y no se deduce: el panel enseña un interruptor,
+/// y un interruptor cuyo estado inicial se adivina miente la mitad de las veces
+/// (directiva 20).
+pub async fn todos(pool: &SqlitePool) -> Resultado<Vec<(Flujo, bool)>> {
     cargar(pool, false).await
 }
 
-async fn cargar(pool: &SqlitePool, solo_activos: bool) -> Resultado<Vec<Flujo>> {
+async fn cargar(pool: &SqlitePool, solo_activos: bool) -> Resultado<Vec<(Flujo, bool)>> {
     let filas = sqlx::query(
-        "SELECT id, titulo, disparadores, confirmacion FROM flujo \
+        "SELECT id, titulo, disparadores, confirmacion, activo FROM flujo \
          WHERE (?1 = 0 OR activo = 1) ORDER BY id",
     )
     .bind(i64::from(solo_activos))
@@ -37,7 +41,8 @@ async fn cargar(pool: &SqlitePool, solo_activos: bool) -> Resultado<Vec<Flujo>> 
     let mut flujos = Vec::with_capacity(filas.len());
     for fila in filas {
         let id: i64 = fila.get("id");
-        flujos.push(Flujo {
+        let activo: i64 = fila.get("activo");
+        flujos.push((Flujo {
             id,
             titulo: fila.get("titulo"),
             disparadores: fila
@@ -49,7 +54,7 @@ async fn cargar(pool: &SqlitePool, solo_activos: bool) -> Resultado<Vec<Flujo>> 
                 .collect(),
             confirmacion: fila.get("confirmacion"),
             pasos: pasos_de(pool, id).await?,
-        });
+        }, activo != 0));
     }
     Ok(flujos)
 }
@@ -128,6 +133,20 @@ pub async fn guardar(pool: &SqlitePool, flujo: &Flujo) -> Resultado<i64> {
 
     tx.commit().await?;
     Ok(id)
+}
+
+/// Borra un flujo. Sus pasos se van con él por la clave foránea.
+///
+/// **No toca los pedidos que produjo.** Un pedido copia el título del flujo
+/// justamente para esto: borrar la plantilla no puede borrar lo que el negocio
+/// vendió.
+pub async fn borrar(pool: &SqlitePool, id: i64) -> Resultado<bool> {
+    let filas = sqlx::query("DELETE FROM flujo WHERE id = ?1")
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(filas > 0)
 }
 
 /// Enciende o apaga un flujo desde el panel.
@@ -217,7 +236,46 @@ mod pruebas {
         assert!(activar(&pool, id, false).await.unwrap());
 
         assert!(activos(&pool).await.unwrap().is_empty());
-        assert_eq!(todos(&pool).await.unwrap().len(), 1);
+        let todos = todos(&pool).await.unwrap();
+        assert_eq!(todos.len(), 1);
+        assert!(!todos[0].1, "el panel no se enteraría de que está apagado");
+    }
+
+    #[tokio::test]
+    async fn borrar_un_flujo_no_borra_los_pedidos_que_produjo() {
+        // El título del pedido se copia justamente para esto: la plantilla se
+        // puede tirar, lo que el negocio vendió no.
+        let pool = base_de_prueba().await;
+        let id = guardar(&pool, &pedido()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO cuenta_canal (canal, id_externo, nombre, token_cifrado, creada_en) \
+             VALUES ('whatsapp', 'PNID-1', 'V', x'00', '2026-08-01T00:00:00+00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let conv: i64 = sqlx::query_scalar(
+            "INSERT INTO conversacion (cuenta_id, contacto, estado, abierta_en, ultimo_en) \
+             VALUES (1, '573001', 'bot', '2026-08-01T00:00:00+00:00', '2026-08-01T00:00:00+00:00') \
+             RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        crate::pedido::registrar(
+            &pool, id, "Toma de pedido", conv, "573001",
+            &[("producto".into(), "sillas".into())], chrono::Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        assert!(borrar(&pool, id).await.unwrap());
+        assert!(!borrar(&pool, id).await.unwrap(), "borrar dos veces dice que sí la segunda");
+        assert_eq!(
+            crate::pedido::recientes(&pool, 10).await.unwrap().len(),
+            1,
+            "borrar el flujo se llevó el pedido"
+        );
     }
 
     #[tokio::test]

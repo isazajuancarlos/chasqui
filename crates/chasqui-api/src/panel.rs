@@ -574,6 +574,9 @@ pub struct FlujoJson {
     disparadores: Vec<String>,
     confirmacion: String,
     pasos: Vec<PasoJson>,
+    /// Si el bot lo atiende. **Viaja siempre**: el panel enseña un interruptor,
+    /// y adivinarle el estado inicial es mentir la mitad de las veces.
+    activo: bool,
 }
 
 #[derive(Serialize)]
@@ -589,11 +592,12 @@ pub async fn flujos(Agente(_): Agente, State(servicio): State<Servicio>) -> Resp
         Ok(lista) => Json(
             lista
                 .into_iter()
-                .map(|f| FlujoJson {
+                .map(|(f, activo)| FlujoJson {
                     id: f.id,
                     titulo: f.titulo,
                     disparadores: f.disparadores,
                     confirmacion: f.confirmacion,
+                    activo,
                     pasos: f
                         .pasos
                         .into_iter()
@@ -608,6 +612,96 @@ pub async fn flujos(Agente(_): Agente, State(servicio): State<Servicio>) -> Resp
         )
         .into_response(),
         Err(e) => fallo("listar flujos", e),
+    }
+}
+
+/// Un flujo tal como lo escribe el panel. Es el MISMO cuerpo que acepta
+/// `chasqui flujo cargar`: una sola forma de declarar un flujo, para que lo que
+/// se configura por pantalla y lo que se carga por archivo no puedan divergir.
+#[derive(Deserialize)]
+pub struct FlujoNuevo {
+    pub titulo: String,
+    pub disparadores: Vec<String>,
+    pub confirmacion: String,
+    pub pasos: Vec<PasoNuevo>,
+}
+
+#[derive(Deserialize)]
+pub struct PasoNuevo {
+    pub clave: String,
+    pub pregunta: String,
+    /// `numero`, `correo`, `codigo`; vacío o ausente para texto libre.
+    #[serde(default)]
+    pub tipo_dato: Option<String>,
+}
+
+/// Crea un flujo, o reemplaza entero el que tenga el mismo título.
+///
+/// **El motivo del rechazo SÍ vuelve al navegador**, al revés que en el resto de
+/// la API. No es una fuga: aquí lo que falla es lo que el cliente acaba de
+/// escribir —«la confirmación usa {telefono}, que no es ninguno de sus pasos»— y
+/// esconderlo detrás de un «no se pudo completar la operación» lo dejaría
+/// probando a ciegas en su propio formulario.
+pub async fn crear_flujo(
+    Agente(_): Agente,
+    State(servicio): State<Servicio>,
+    Json(cuerpo): Json<FlujoNuevo>,
+) -> Response {
+    let mut pasos = Vec::with_capacity(cuerpo.pasos.len());
+    for p in cuerpo.pasos {
+        // Un tipo inventado no se degrada a texto libre: eso aceptaría «unas
+        // pocas» como cantidad y el pedido llegaría inservible al negocio.
+        let tipo_dato = match p.tipo_dato.as_deref() {
+            None | Some("") => None,
+            Some(t) => match chasqui_dominio::consulta::TipoDato::desde_ranura(t) {
+                Some(td) => Some(td),
+                None => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json_error(&format!(
+                            "«{t}» no es un tipo de dato. Son: numero, correo, codigo — o \
+                             ninguno para texto libre."
+                        ))),
+                    )
+                        .into_response();
+                }
+            },
+        };
+        pasos.push(chasqui_dominio::flujo::Paso {
+            clave: p.clave,
+            pregunta: p.pregunta,
+            tipo_dato,
+        });
+    }
+
+    let flujo = chasqui_dominio::flujo::Flujo {
+        id: 0,
+        titulo: cuerpo.titulo,
+        disparadores: cuerpo.disparadores,
+        pasos,
+        confirmacion: cuerpo.confirmacion,
+    };
+
+    match bd_flujo::guardar(&servicio.pool, &flujo).await {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
+        Err(chasqui_datos::Error::Flujo(e)) => {
+            (StatusCode::BAD_REQUEST, Json(json_error(&e.to_string()))).into_response()
+        }
+        Err(e) => fallo("guardar el flujo", e),
+    }
+}
+
+pub async fn borrar_flujo(
+    Agente(_): Agente,
+    State(servicio): State<Servicio>,
+    Path(id): Path<i64>,
+) -> Response {
+    match bd_flujo::borrar(&servicio.pool, id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => {
+            (StatusCode::NOT_FOUND, Json(json_error("ese flujo no existe"))).into_response()
+        }
+        Err(e) => fallo("borrar el flujo", e),
     }
 }
 

@@ -159,8 +159,8 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/consultas", get(panel::consultas))
         .route("/consultas/{id}", patch(panel::activar_consulta))
         // Los flujos de varios pasos y lo que producen.
-        .route("/flujos", get(panel::flujos))
-        .route("/flujos/{id}", patch(panel::activar_flujo))
+        .route("/flujos", get(panel::flujos).post(panel::crear_flujo))
+        .route("/flujos/{id}", patch(panel::activar_flujo).delete(panel::borrar_flujo))
         .route("/pedidos", get(panel::pedidos))
         .route("/cuentas", get(panel::cuentas))
         .route("/documentos", get(panel::documentos))

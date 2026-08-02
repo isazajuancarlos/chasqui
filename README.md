@@ -89,9 +89,10 @@ chasqui servir
 ```
 
 El panel queda en la raíz (`https://…/`): la cola de quien espera, la
-conversación con su historial y un cuadro para **responder como persona**, y la
-configuración de los textos, las preguntas frecuentes y las consultas. Va
-**dentro del binario** — un solo ejecutable, sin carpetas que copiar ni fuentes
+conversación con su historial y un cuadro para **responder como persona**, los
+**pedidos** que armaron los flujos, y la configuración de los textos, las
+preguntas frecuentes, las consultas y los **flujos de varios pasos** —con sus
+pasos editables uno a uno, sin tocar un JSON por SSH—. Va **dentro del binario** — un solo ejecutable, sin carpetas que copiar ni fuentes
 que pedirle a un CDN, que es lo que hace cierta la frase de que las
 conversaciones no salen del servidor del cliente.
 
