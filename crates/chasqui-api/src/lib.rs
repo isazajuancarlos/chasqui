@@ -20,6 +20,7 @@ pub mod modelo;
 pub mod panel;
 pub mod servicio;
 pub mod sesion;
+pub mod web;
 pub mod webhook;
 
 use axum::Router;
@@ -171,6 +172,16 @@ pub fn router(servicio: Servicio) -> Router {
         // canal y no uno solo: así el cuerpo que llega se lee con el adaptador
         // que le corresponde en vez de adivinarlo por el campo «object».
         .route("/webhook/{canal}", get(webhook::verificar).post(webhook::recibir))
+        // El canal web: las tres rutas que hablan con el widget del sitio del
+        // cliente y con su aplicación móvil. **Son las únicas sin sesión**, y por
+        // eso van juntas y a la vista: comprueban el sitio contra las cuentas de
+        // canal `web` dadas de alta, y llevan su propio freno por IP.
+        //
+        // No hay `/webhook/web`: ahí no hay nada que Meta firme.
+        .route("/web/conversacion", post(web::abrir).options(web::previa))
+        .route("/web/mensaje", post(web::mensaje).options(web::previa))
+        .route("/web/mensajes", get(web::mensajes).options(web::previa))
+        .route("/web/widget.js", get(web::widget))
         // Para el monitor del despliegue. No dice nada de la configuración: un
         // «vivo» que enumere lo que falta es un mapa para quien lo lea.
         .route("/salud", get(|| async { "vivo" }))

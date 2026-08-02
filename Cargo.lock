@@ -295,6 +295,7 @@ dependencies = [
  "chasqui-dominio",
  "chrono",
  "clap",
+ "getrandom 0.4.3",
  "guaca",
  "hex",
  "hmac 0.12.1",

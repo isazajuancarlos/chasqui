@@ -18,6 +18,7 @@
 //! es la misma para los tres canales.
 
 pub mod meta_mensajeria;
+pub mod web;
 pub mod whatsapp;
 
 use async_trait::async_trait;

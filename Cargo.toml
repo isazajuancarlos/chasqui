@@ -40,6 +40,10 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
+# El identificador opaco de una conversación web. Azar del SISTEMA y no un
+# generador de espacio de usuario: ese identificador ES la llave de la
+# conversación, y un PRNG con estado predecible deja leer la de otro visitante.
+getrandom = "0.4"
 # Firma del webhook de Meta (X-Hub-Signature-256) y comparación en tiempo constante.
 hmac = "0.12"
 sha2 = "0.10"

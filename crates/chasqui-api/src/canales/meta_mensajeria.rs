@@ -125,7 +125,7 @@ impl AdaptadorCanal for MetaMensajeria {
             .get("object")
             .and_then(Value::as_str)
             .ok_or_else(|| self.forma("el cuerpo no trae «object»"))?;
-        if objeto != self.canal.objeto_meta() {
+        if Some(objeto) != self.canal.objeto_meta() {
             return Err(self.forma(format!(
                 "«object» es {objeto:?} y en la ruta de {} tiene que ser {:?}",
                 self.canal,

@@ -47,7 +47,10 @@ construir lo que a uno le parece.
 - **El canal es una interfaz desde el primer día**, aunque solo haya una
   implementación. WhatsApp, Instagram y Messenger comparten consola y modelo de
   webhook en Meta: los tres son un adaptador más, no triple trabajo. Ya hay una
-  petición que los pide.
+  petición que los pide. **El cuarto, `web`, no es de Meta**: no llega por
+  webhook, no hay firma, y la respuesta la sondea el navegador — por eso
+  `Canal::objeto_meta` devuelve `Option` y `/webhook/{canal}` solo acepta los de
+  `Canal::DE_META`.
 - **Ni una columna `cliente_id` en ninguna tabla.** El aislamiento entre clientes
   es que son máquinas distintas, y esa es justo la frase que se le vende. Una
   base por instancia; el día que aparezca esa columna, la frase deja de ser

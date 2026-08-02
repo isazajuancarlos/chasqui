@@ -46,7 +46,10 @@ pub async fn verificar(
     Query(parametros): Query<HashMap<String, String>>,
     State(servicio): State<Servicio>,
 ) -> Response {
-    if Canal::desde_ranura(&ranura).is_none() {
+    // No basta con que la ranura sea un canal: tiene que ser uno de META. El
+    // canal web existe y NO llega por aquí; darle de alta un webhook sería
+    // abrirle una puerta que nadie firma.
+    if !Canal::desde_ranura(&ranura).is_some_and(|c| c.es_de_meta()) {
         return canal_desconocido(&ranura);
     }
 
@@ -78,7 +81,10 @@ pub async fn recibir(
     cabeceras: HeaderMap,
     cuerpo: Bytes,
 ) -> Response {
-    let Some(canal) = Canal::desde_ranura(&ranura) else {
+    let Some(canal) = Canal::desde_ranura(&ranura).filter(Canal::es_de_meta) else {
+        // `web` cae aquí igual que `telegram`: no hay webhook que Meta firme, y
+        // aceptar un cuerpo sin firma «porque ese canal no tiene secreto» es
+        // exactamente el agujero que la firma existe para tapar.
         return canal_desconocido(&ranura);
     };
 

@@ -11,7 +11,7 @@ use chasqui_dominio::Canal;
 use chasqui_dominio::conversacion::VENTANA_HORAS_META;
 use sqlx::SqlitePool;
 
-use crate::canales::{AdaptadorCanal, meta_mensajeria::MetaMensajeria, whatsapp::WhatsApp};
+use crate::canales::{AdaptadorCanal, meta_mensajeria::MetaMensajeria, web::Web, whatsapp::WhatsApp};
 use crate::config::Config;
 
 /// El estado del servidor. Se clona barato (todo detrás de `Arc` o ya clonable).
@@ -35,6 +35,17 @@ pub struct Servicio {
     secreto_sesion: Arc<Vec<u8>>,
     /// Si la cookie de sesión va sin `Secure`. Solo para probar en local.
     pub sin_tls: bool,
+    /// Cuánto dura una conversación del canal web.
+    ///
+    /// **No son las 24 horas de Meta.** Aquella es una regla de FACTURACIÓN de
+    /// Meta, no una propiedad de las conversaciones: aplicarla a un chat de una
+    /// página web sería cerrarle la conversación a alguien por un motivo que en
+    /// su canal no existe. Una semana: lo bastante para que quien vuelva al día
+    /// siguiente encuentre el hilo, y lo bastante corto para que el historial no
+    /// sea eterno.
+    pub horas_ventana_web: i64,
+    /// El freno de conversaciones nuevas del canal web, por IP y en memoria.
+    pub freno_web: crate::web::Freno,
 }
 
 /// El cliente HTTP para las consultas al sistema del cliente.
@@ -75,6 +86,9 @@ impl Servicio {
             Canal::Instagram,
             Box::new(MetaMensajeria::nuevo(Canal::Instagram, cliente, &config.graph)),
         );
+        // El canal web no habla con Meta y no necesita cliente HTTP ninguno: su
+        // «envío» es que el mensaje quede en la base, donde el widget lo lee.
+        canales.insert(Canal::Web, Box::new(Web));
 
         Servicio {
             pool,
@@ -86,6 +100,8 @@ impl Servicio {
             horas_ventana: VENTANA_HORAS_META,
             secreto_sesion: Arc::new(crate::sesion::secreto_de(&config.frase)),
             sin_tls: config.sin_tls,
+            horas_ventana_web: 24 * 7,
+            freno_web: crate::web::Freno::default(),
         }
     }
 
@@ -94,13 +110,13 @@ impl Servicio {
         &self.secreto_sesion
     }
 
-    /// El adaptador de un canal. Los tres están siempre montados: que una cuenta
-    /// exista o no es cosa de la base, no del servidor.
+    /// El adaptador de un canal. Los cuatro están siempre montados: que una
+    /// cuenta exista o no es cosa de la base, no del servidor.
     pub fn canal(&self, canal: Canal) -> &dyn AdaptadorCanal {
         self.canales
             .get(&canal)
             .map(AsRef::as_ref)
-            .expect("los tres canales se montan en `nuevo`")
+            .expect("los cuatro canales se montan en `nuevo`")
     }
 
     /// El secreto con el que se comprueba la firma de un webhook.
@@ -122,9 +138,10 @@ mod pruebas {
 
     // `connect_lazy` de SQLx exige un contexto de tokio aunque no abra nada.
     #[tokio::test]
-    async fn los_tres_canales_estan_montados() {
+    async fn todos_los_canales_estan_montados() {
         // Que el canal sea una interfaz desde el primer día no sirve de nada si
-        // el servidor solo monta uno: la ruta de Instagram daría 500.
+        // el servidor solo monta uno: la ruta de Instagram daría 500. Recorre
+        // `Canal::TODOS`, así que añadir un canal y no montarlo se cae aquí.
         let config = Config {
             url_bd: "sqlite::memory:".into(),
             escucha: "127.0.0.1".parse().unwrap(),

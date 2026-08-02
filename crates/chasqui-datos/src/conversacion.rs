@@ -200,6 +200,28 @@ pub async fn abrir_o_continuar(
     })
 }
 
+/// La conversación viva de un contacto en una cuenta, sin abrir ninguna.
+///
+/// La usa el canal web para leer lo dicho. Va por cuenta Y contacto, y no solo
+/// por el identificador del visitante: que hoy una instancia atienda a un solo
+/// negocio no debe ser lo que hace correcta la consulta.
+pub async fn viva_de(
+    pool: &SqlitePool,
+    cuenta_id: i64,
+    contacto: &str,
+) -> Resultado<Option<Conversacion>> {
+    let fila = sqlx::query(&format!(
+        "SELECT {} FROM conversacion
+         WHERE cuenta_id = ?1 AND contacto = ?2 AND cerrada_en IS NULL",
+        columnas()
+    ))
+    .bind(cuenta_id)
+    .bind(contacto)
+    .fetch_optional(pool)
+    .await?;
+    fila.map(leer).transpose()
+}
+
 /// Anota —o borra— qué dato se está esperando.
 ///
 /// Se guarda en la conversación y no en memoria del proceso a propósito: quien

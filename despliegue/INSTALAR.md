@@ -101,6 +101,32 @@ retención— está en el [`README.md`](../README.md).
 sin ellos Chasqui no atiende ni borra nada.** No es un descuido: los dos los
 tiene que decidir el responsable del tratamiento, que es el negocio.
 
+## 6b. Opcional: el chat en la web del negocio
+
+```bash
+sudo -u chasqui env $(sudo cat /etc/chasqui/chasqui.env | grep -v '^#' | xargs) \
+     /opt/chasqui/chasqui cuenta añadir --canal web --id https://suempresa.com \
+     --nombre "Sitio"
+```
+
+Y en el sitio, antes de `</body>`:
+
+```html
+<script src="https://chat.suempresa.com/web/widget.js" async></script>
+```
+
+Tres cosas que hacen que esto funcione o no:
+
+- **El origen tiene que ser EXACTO.** `https://suempresa.com` y
+  `https://www.suempresa.com` son orígenes distintos para el navegador; si el
+  sitio responde por los dos, dé de alta los dos.
+- **Añada la zona de límite** `chasqui_web` al `http {}` de nginx (está en la
+  cabecera de `chasqui.nginx`). Es la única superficie sin autenticar.
+- **Si el sitio tiene CSP**, tiene que dejar pasar el chat:
+  `script-src https://chat.suempresa.com` y
+  `connect-src https://chat.suempresa.com`. Sin eso el widget no carga y el
+  navegador solo lo dice en su consola.
+
 ## 7. Los respaldos
 
 ```bash
@@ -163,3 +189,5 @@ Cualquier supervisor sirve; lo que no puede faltar es el usuario propio, el
 | Firma inválida en el log | el `App Secret` no es el de esa app, o hay un proxy en medio reescribiendo el cuerpo |
 | «no se pudo descifrar el token» | la `CHASQUI_FRASE` no es la misma con la que se guardó |
 | Entra al panel y lo saca | falta el TLS: sin `https` la cookie de sesión no se guarda |
+| El chat de la web no aparece | el origen dado de alta no coincide *exactamente* con el del sitio (`www`, el puerto, `http` vs `https`), o la CSP del sitio no deja cargar el guion |
+| El chat carga pero no contesta | el navegador rechaza la respuesta por CORS: casi siempre es un `add_header Access-Control-*` puesto a mano en el proxy, que duplica el que ya manda Chasqui |

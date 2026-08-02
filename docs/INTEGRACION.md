@@ -56,10 +56,35 @@ Y **la web y la app son un solo trabajo**: una API pública de conversación, y 
 misma razón. Una app móvil del cliente habla esa API con su clave y no hay nada
 nuevo que construir.
 
-Lo que sí hay que resolver, y no lo resuelve el trait: el emisor es un navegador
-anónimo, así que no hay firma que valga, no hay número de teléfono que use de
-identidad, y la respuesta no se «envía» a una API ajena sino que hay que
-empujarla al que está esperando. Son tres decisiones propias de este canal.
+**HECHO el 2026-08-01.** Las tres decisiones que el trait no resolvía —el emisor
+es un navegador anónimo— se tomaron así:
+
+1. **Autenticación.** El sitio se *identifica*, no se autentica: lo que llega por
+   `Origin` (o por `X-Chasqui-Sitio` cuando no hay navegador) tiene que casar con
+   una cuenta de canal `web` dada de alta. No es un secreto y no se finge que lo
+   sea — la clave de un widget viaja en una página pública. Lo que sí protege una
+   conversación es su identificador. El CORS refleja el origen concreto y **nunca
+   `*`**.
+2. **Identidad.** El servidor emite un identificador opaco de 256 bits del azar
+   del sistema, y el navegador lo guarda. Si lo eligiera el navegador, cualquiera
+   podría pedir el de otro visitante y leerle la conversación.
+3. **Entrega.** No hace falta empujar nada: el mensaje saliente ya se guarda en
+   la base, y el widget lo **sondea**. Menos piezas que SSE, sobrevive a un
+   reinicio, y —lo que decide— atraviesa cualquier proxy. Un flujo abierto se
+   muere en el primer proxy con buffering, y aquí el proxy lo pone el
+   administrador del cliente: sería el fallo que funciona en desarrollo y aparece
+   muerto en casa del cliente.
+
+Y la cuarta, que salió al escribirlo: **el límite de texto no se copia del de
+WhatsApp**. Aquel existe porque Meta rechaza el envío entero al pasarse; este es
+nuestro y su razón es que una burbuja de chat larguísima no se lee. Hoy valen lo
+mismo, y por eso están escritos aparte: para que no puedan arrastrarse.
+
+Debajo, **ni una línea repetida**: el aviso de privacidad, la base de
+conocimiento, los documentos, los flujos, el escalado y la retención son los
+mismos, porque el mensaje del navegador entra por el mismo `atender::procesar`
+que un webhook. Un canal que se atendiera por su cuenta es un canal donde esas
+reglas se olvidan de una en una.
 
 ## Costura 2 — Los datos del cliente: que el bot responda con **su** información
 

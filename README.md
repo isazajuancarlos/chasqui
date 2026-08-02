@@ -35,7 +35,7 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 | Respaldo en caliente, verificado | **funciona** — `VACUUM INTO`, y la copia se abre y se compara antes de darse por buena |
 | Despliegue en el servidor del cliente | **funciona** — plantillas de systemd y nginx, y [`despliegue/INSTALAR.md`](despliegue/INSTALAR.md) |
 | Flujos de varios pasos y toma de pedidos | **funciona** — el bot recoge los datos uno a uno, arma el pedido y llama a una persona para despacharlo |
-| Canal web y aplicación móvil | pendiente — el diseño está en [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
+| Chat en la web del cliente, y su aplicación móvil | **funciona** — un `<script>` que se pega en su sitio, y la misma API para su app |
 | Entregar el pedido al sistema del cliente (webhook saliente) | pendiente — hoy llega por el panel |
 
 ## Cómo se instala y se pone a andar
@@ -99,6 +99,48 @@ conversaciones no salen del servidor del cliente.
 `chasqui olvidar --contacto 573001…` ejerce el derecho de supresión y deja la
 constancia; `chasqui purgar` borra lo que pasó del plazo (y se hace solo cada
 24 h mientras el servidor esté levantado).
+
+## El chat en la web, y en la aplicación móvil
+
+Es **el único canal que funciona el primer día**: no necesita app de Meta, ni
+verificación de negocio, ni token que caduque, y no tiene coste por conversación.
+
+```bash
+# El origen tal cual lo manda el navegador: sin barra final, y «www» delante
+# es un origen DISTINTO (dé de alta los dos si su sitio responde por los dos).
+chasqui cuenta añadir --canal web --id https://acme.com --nombre "Sitio de ACME"
+```
+
+Y en su sitio, antes de `</body>`:
+
+```html
+<script src="https://chat.acme.com/web/widget.js" async
+        data-titulo="Escríbanos"></script>
+```
+
+Ya está: el chat aparece abajo a la derecha. Va dentro de un *shadow DOM*, así
+que ni el CSS del sitio se mete en el chat ni el del chat en el sitio, y no
+descarga nada de internet — la promesa de que la instalación no sale a ninguna
+parte sigue siendo cierta.
+
+Debajo es **el mismo bot**: el aviso de privacidad, las preguntas frecuentes, los
+documentos, los flujos, el escalado a una persona y la retención valen igual, sin
+una línea de código repetida. Quien atiende ve las conversaciones de la web en la
+misma cola que las de WhatsApp.
+
+**Una aplicación móvil es el mismo canal**, no un adaptador nuevo: habla las
+mismas tres rutas (`POST /web/conversacion`, `POST /web/mensaje`,
+`GET /web/mensajes`) y dice de qué sitio es con la cabecera `X-Chasqui-Sitio`,
+porque no manda `Origin`.
+
+Dos cosas que conviene saber antes de instalarlo:
+
+- **Si su sitio tiene CSP**, hay que dejarle sitio al chat:
+  `script-src https://chat.acme.com` y `connect-src https://chat.acme.com`.
+- **El `<script>` no lleva `integrity`** a propósito: el widget cambia con cada
+  versión de Chasqui, y un hash fijo dejaría de cargarlo en silencio al
+  actualizar. El servidor es suyo, no una CDN ajena — el ataque que ese hash
+  pararía exige que ya tengan la máquina donde viven las conversaciones.
 
 ## Los flujos: recoger un pedido paso a paso
 

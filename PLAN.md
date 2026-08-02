@@ -204,6 +204,7 @@ lleva el [`README.md`](README.md), y por encima de los dos manda el repositorio.
 | Leer los datos del cliente (su API) | **hecho** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Panel para atender y configurar | **hecho** — Angular Material dentro del binario |
 | Flujos de varios pasos y toma de pedidos | **hecho** — lo piden TRES de las cinco peticiones; el pedido armado se registra y se escala para despacharlo |
+| Chat en la web del cliente y su aplicación móvil | **hecho** — un `<script>` y la misma API; el único canal que funciona sin esperar a Meta |
 | Entregar el pedido al sistema del cliente (costura 3) | pendiente — no lo pide ninguna de las cinco |
 
 Y una costura que este plan no separaba y que hay que separar, porque de ella

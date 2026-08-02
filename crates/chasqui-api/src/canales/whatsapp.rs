@@ -104,7 +104,7 @@ impl AdaptadorCanal for WhatsApp {
             .get("object")
             .and_then(Value::as_str)
             .ok_or_else(|| forma("el cuerpo no trae «object»"))?;
-        if objeto != Canal::WhatsApp.objeto_meta() {
+        if Some(objeto) != Canal::WhatsApp.objeto_meta() {
             return Err(forma(format!(
                 "«object» es {objeto:?} y en la ruta de WhatsApp tiene que ser {:?}",
                 Canal::WhatsApp.objeto_meta()

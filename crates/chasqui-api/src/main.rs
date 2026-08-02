@@ -159,9 +159,13 @@ enum OrdenCuenta {
     /// el fallo que hace pensar que el producto no funciona.
     #[command(name = "añadir", alias = "anadir")]
     Anadir {
-        #[arg(long, value_parser = ["whatsapp", "instagram", "messenger"])]
+        #[arg(long, value_parser = ["whatsapp", "instagram", "messenger", "web"])]
         canal: String,
-        /// El id que manda Meta: phone_number_id, o el id de la página o cuenta.
+        /// En los canales de Meta, el id que ella manda: phone_number_id, o el
+        /// id de la página o de la cuenta. **En el canal `web`, el ORIGEN del
+        /// sitio del cliente** tal cual lo manda el navegador —
+        /// `https://acme.com`, sin barra final— o el identificador que use su
+        /// aplicación móvil.
         #[arg(long)]
         id: String,
         #[arg(long, default_value = "")]
@@ -319,10 +323,33 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
 
         Orden::Cuenta(OrdenCuenta::Anadir { canal, id, nombre }) => {
             let canal = Canal::desde_ranura(&canal).expect("clap ya validó el canal");
-            let token = leer_token()?;
+
+            // El canal web NO pide token, y no es una excepción cómoda: es que no
+            // existe. No hay ninguna API ajena a la que llamar —el navegador es
+            // quien pregunta—, así que pedir un token sería inventar un secreto
+            // para tener dónde guardarlo. Se guarda una cadena vacía, cifrada
+            // como todo lo demás para que la columna no tenga dos formatos.
+            let token = if canal.es_de_meta() {
+                leer_token()?
+            } else {
+                String::new()
+            };
+
             let boveda = chasqui_datos::Boveda::nueva(&config.frase);
             cuenta::guardar(&pool, &boveda, canal, &id, &nombre, &token, Utc::now()).await?;
-            println!("cuenta {canal}/{id} dada de alta, con el token cifrado en reposo");
+
+            if canal.es_de_meta() {
+                println!("cuenta {canal}/{id} dada de alta, con el token cifrado en reposo");
+            } else {
+                println!(
+                    "sitio {id} dado de alta para el chat web.\n\n\
+                     Pegue esto en su sitio, antes de </body>:\n\
+                     \x20 <script src=\"https://SU-DOMINIO-DE-CHASQUI/web/widget.js\" async></script>\n\n\
+                     El origen tiene que ser EXACTAMENTE el que manda el navegador \
+                     ({id}): otro puerto o «www» delante son orígenes distintos y el \
+                     chat no cargará."
+                );
+            }
             Ok(())
         }
 

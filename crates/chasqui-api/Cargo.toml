@@ -28,6 +28,7 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true }
+getrandom = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }

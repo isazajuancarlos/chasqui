@@ -19,6 +19,12 @@
 # Las zonas se definen UNA vez, en el bloque http {} (nginx.conf), no aquí:
 #   limit_req_zone $binary_remote_addr zone=chasqui_login:10m rate=5r/m;
 #   limit_req_zone $binary_remote_addr zone=chasqui_panel:10m rate=30r/s;
+#   limit_req_zone $binary_remote_addr zone=chasqui_web:10m   rate=2r/s;
+#
+# NO se tocan las cabeceras de CORS aquí. Las pone Chasqui, que es el único que
+# sabe qué sitios están dados de alta; un `add_header Access-Control-*` en el
+# proxy las duplicaría —el navegador rechaza una respuesta con la cabecera dos
+# veces— y el chat dejaría de cargar sin decir por qué.
 
 # Las cabeceras del proxy van en `chasqui-proxy.conf`, que se instala al lado, y
 # NO con el `include proxy_params` que se ve en todos los ejemplos: ese archivo
@@ -80,6 +86,21 @@ server {
     # NADA funciona sin que nada lo explique. Por eso aquí no hay `sub_filter` ni
     # módulos que reescriban, y el buffering se deja como está.
     location /webhook/ {
+        proxy_pass http://127.0.0.1:8787;
+        include /etc/nginx/chasqui-proxy.conf;
+    }
+
+    # EL CHAT DE LA WEB. Es la única superficie de Chasqui SIN AUTENTICAR: la
+    # abre cualquiera que visite el sitio del cliente. Chasqui ya trae su propio
+    # freno de conversaciones nuevas por IP, y este es la otra capa —la que para
+    # la avalancha antes de que llegue al proceso—.
+    #
+    # El límite es generoso a propósito: el widget sondea cada tres segundos
+    # mientras el visitante tiene el chat abierto, así que una visita normal hace
+    # unas veinte peticiones por minuto. Un límite apretado aquí se ve como un
+    # chat que «se queda pensando», y nadie relaciona eso con el nginx.
+    location /web/ {
+        limit_req zone=chasqui_web burst=40 nodelay;
         proxy_pass http://127.0.0.1:8787;
         include /etc/nginx/chasqui-proxy.conf;
     }

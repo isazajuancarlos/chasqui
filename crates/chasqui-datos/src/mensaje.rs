@@ -195,3 +195,60 @@ mod pruebas {
         );
     }
 }
+
+/// Un mensaje tal como lo lee el widget del canal web.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Linea {
+    pub id: i64,
+    /// `true` si lo escribió quien visita; `false` si lo dijo el bot o una persona.
+    pub entrante: bool,
+    pub texto: String,
+    pub momento: DateTime<Utc>,
+}
+
+/// Los mensajes de una conversación posteriores a `desde`.
+///
+/// El corte va por `id` y no por fecha, y no es un detalle: dos mensajes del
+/// mismo segundo son indistinguibles por fecha, así que un sondeo que preguntara
+/// «lo posterior a este instante» se saltaría uno o repetiría otro. El `id` es
+/// monótono y único.
+pub async fn desde(pool: &SqlitePool, conversacion_id: i64, desde: i64) -> Resultado<Vec<Linea>> {
+    let filas: Vec<(i64, String, String, String)> = sqlx::query_as(
+        "SELECT id, direccion, texto, momento FROM mensaje \
+         WHERE conversacion_id = ?1 AND id > ?2 ORDER BY id",
+    )
+    .bind(conversacion_id)
+    .bind(desde)
+    .fetch_all(pool)
+    .await?;
+
+    filas
+        .into_iter()
+        .map(|(id, direccion, texto, momento)| {
+            // Una dirección que no es ninguna de las dos NO se resuelve a
+            // «saliente»: el widget pintaría del lado del bot algo que escribió
+            // quien visita, o al revés (directiva 20).
+            let entrante = match direccion.as_str() {
+                "entrante" => true,
+                "saliente" => false,
+                otro => {
+                    return Err(crate::Error::ValorInvalido {
+                        tabla: "mensaje",
+                        id,
+                        columna: "direccion",
+                        valor: otro.to_string(),
+                    });
+                }
+            };
+            let momento = DateTime::parse_from_rfc3339(&momento)
+                .map(|d| d.with_timezone(&Utc))
+                .map_err(|_| crate::Error::ValorInvalido {
+                    tabla: "mensaje",
+                    id,
+                    columna: "momento",
+                    valor: momento,
+                })?;
+            Ok(Linea { id, entrante, texto, momento })
+        })
+        .collect()
+}
