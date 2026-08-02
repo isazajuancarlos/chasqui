@@ -146,6 +146,17 @@ se vende, «una base por instancia», sigue siendo literal. El precio es el tope
 de tamaño (`Servicio::tope_medio`), y **lo que no cabe se anota diciendo que no
 cabe**, nunca se descarta callando.
 
+**Las coordenadas se traducen a «municipio, departamento, país» DENTRO del
+binario** (`chasqui-dominio/src/geo.rs`), con una tabla de GeoNames `cities5000`
+empotrada (1,7 MB, 69 561 ciudades). Nunca se le pregunta a un servicio de mapas:
+esa consulta llevaría la ubicación exacta del cliente del cliente a un tercero, y
+**reducir lo que se muestra no reduce lo que se transmite**. El nivel se eligió
+midiendo —con `cities15000` un punto real de Amagá salía como «Caldas», otro
+municipio— y la etiqueta lleva su distancia porque el error mediano para un
+pueblo pequeño es de 10 km. Se regenera con `herramientas/geo_compacto.py`; el
+`.bin` **sí se versiona**, para que compilar no necesite red. Atribución CC BY en
+`NOTICE`: es obligatoria.
+
 Dos cosas del camino que no se ven leyendo:
 
 - **La descarga NO va en el camino del webhook.** Meta reintenta si no recibe el

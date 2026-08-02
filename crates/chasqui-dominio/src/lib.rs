@@ -20,6 +20,7 @@ pub mod conocimiento;
 pub mod consulta;
 pub mod conversacion;
 pub mod documentos;
+pub mod geo;
 pub mod flujo;
 pub mod guion;
 pub mod mensaje;

@@ -426,6 +426,11 @@ async fn una_ubicacion_llega_con_sus_coordenadas_al_historial() {
     assert!(texto.contains("6.038"), "sin latitud: {texto}");
     assert!(texto.contains("-75.702"), "sin longitud: {texto}");
     assert!(texto.contains("Casa"), "sin el nombre del sitio: {texto}");
+    // Y el municipio, resuelto DENTRO del binario y sin preguntarle a ningún
+    // servicio de mapas. Que llegue hasta aquí prueba que la tabla empotrada
+    // viaja en el ejecutable de verdad, no solo en las pruebas del dominio.
+    assert!(texto.contains("Amagá"), "no situó el punto: {texto}");
+    assert!(texto.contains("Colombia"), "sin país: {texto}");
     // Y una ubicación no tiene archivo que descargar.
     assert!(historial[0].get("medio").is_none(), "se inventó un archivo: {}", historial[0]);
 }

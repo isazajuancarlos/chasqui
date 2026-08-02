@@ -110,16 +110,34 @@ impl Ubicacion {
     /// presentación y de qué proveedor usa el cliente, y el dominio no elige
     /// proveedor por él.
     pub fn descripcion(&self) -> String {
-        let dónde = match (&self.nombre, &self.direccion) {
-            (Some(n), Some(d)) if n != d => format!("{n} — {d}"),
-            (Some(t), _) | (_, Some(t)) => t.clone(),
-            (None, None) => String::new(),
-        };
-        if dónde.is_empty() {
-            format!("[una ubicación: {}, {}]", self.latitud, self.longitud)
-        } else {
-            format!("[una ubicación: {dónde} ({}, {})]", self.latitud, self.longitud)
+        let mut partes = Vec::new();
+
+        // Lo que dijo quien escribe, si dijo algo.
+        match (&self.nombre, &self.direccion) {
+            (Some(n), Some(d)) if n != d => partes.push(format!("{n} — {d}")),
+            (Some(t), _) | (_, Some(t)) => partes.push(t.clone()),
+            (None, None) => {}
         }
+
+        // Dónde cae, resuelto SIN salir de esta máquina (ver `geo`).
+        //
+        // Se escribe «a 1,6 km de Amagá» y no «Amagá (a 1,6 km)» a propósito: lo
+        // segundo se puede leer como «a 1,6 km de las afueras de Amagá», y en
+        // una ciudad grande el punto de referencia está a varios kilómetros de
+        // barrios que sí son la ciudad. La primera forma dice exactamente lo que
+        // se sabe —la distancia a un punto conocido— sin afirmar si está dentro.
+        if let Some(lugar) = crate::geo::situar(self.latitud, self.longitud) {
+            let km = format!("{:.1}", lugar.km).replace('.', ",");
+            partes.push(format!("a {km} km de {}", lugar.nombre()));
+        }
+
+        // Las coordenadas van SIEMPRE y las últimas. Son el dato con el que se
+        // opera —a una casa se llega con un punto, no con un municipio—, y la
+        // etiqueta de arriba es contexto para entenderlo de un vistazo, no su
+        // sustituto.
+        partes.push(format!("{}, {}", self.latitud, self.longitud));
+
+        format!("[una ubicación: {}]", partes.join(" · "))
     }
 }
 
@@ -253,7 +271,39 @@ mod pruebas {
     fn una_ubicacion_sin_nombre_no_deja_un_hueco_ni_un_guion_suelto() {
         // Compartir la ubicación en vivo no manda nombre. El texto tiene que
         // seguir leyéndose como una frase, no como una plantilla a medio rellenar.
-        assert_eq!(ubicacion(None, None).descripcion(), "[una ubicación: 6.038, -75.702]");
+        let d = ubicacion(None, None).descripcion();
+        assert!(d.starts_with("[una ubicación: a "), "{d}");
+        assert!(!d.contains("·  ·"), "quedó un hueco: {d}");
+        assert!(!d.contains(": ·"), "empieza con un separador suelto: {d}");
+    }
+
+    #[test]
+    fn una_ubicacion_dice_el_municipio_sin_preguntarle_a_ningun_mapa() {
+        // La etiqueta se resuelve dentro de la máquina; ver `geo`. Aquí se fija
+        // que llega hasta el texto que ve quien atiende.
+        let d = ubicacion(None, None).descripcion();
+        assert!(d.contains("Amagá"), "no situó el punto: {d}");
+        assert!(d.contains("Antioquia") && d.contains("Colombia"), "{d}");
+    }
+
+    #[test]
+    fn la_etiqueta_no_sustituye_a_las_coordenadas() {
+        // A una casa se llega con un punto, no con un municipio. Si algún día
+        // alguien decide que el nombre basta, esto se cae.
+        let d = ubicacion(Some("Casa"), None).descripcion();
+        assert!(d.contains("6.038") && d.contains("-75.702"), "perdió el dato: {d}");
+        assert!(d.contains("Casa"), "perdió lo que dijo el cliente: {d}");
+    }
+
+    #[test]
+    fn en_mitad_del_oceano_la_ubicacion_sale_solo_con_sus_coordenadas() {
+        let clase = Clase::Ubicacion(Ubicacion {
+            latitud: -30.0,
+            longitud: -140.0,
+            nombre: None,
+            direccion: None,
+        });
+        assert_eq!(clase.descripcion(), "[una ubicación: -30, -140]");
     }
 
     #[test]

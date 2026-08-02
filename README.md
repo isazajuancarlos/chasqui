@@ -216,7 +216,19 @@ atiende se entera y puede pedirlo por otra vía, en vez de creer que el cliente
 no mandó nada.
 
 Una **ubicación** no se descarga: las coordenadas vienen en el propio mensaje y
-se guardan con él, así que quien atiende ve a dónde hay que llevar el pedido.
+se guardan con él. Y se acompañan del municipio, el departamento y el país —«a
+1,6 km de Amagá, Antioquia, Colombia»— **resueltos dentro del servidor del
+cliente**, con una tabla de 69 561 ciudades empotrada en el binario.
+
+Eso último no es un capricho técnico. Traducir unas coordenadas preguntándole a
+un servicio de mapas obligaría a mandarle la ubicación exacta de los clientes del
+cliente, en cada consulta, a una empresa que él no eligió. Chasqui no lo hace: no
+sale ni un byte de la máquina, y funciona sin internet.
+
+La distancia va escrita a propósito. La ciudad conocida más cercana a un pueblo
+pequeño está a 10 km de mediana y a veces a 30 o 40, así que decir «Amagá» a
+secas convertiría una aproximación en una afirmación. Y si no hay ninguna ciudad
+a menos de 100 km, no se inventa: salen solo las coordenadas.
 
 En los cuatro casos el bot no responde por su cuenta: **llama a una persona**,
 porque una foto no se contesta a ciegas.
