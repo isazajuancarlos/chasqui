@@ -246,14 +246,8 @@ documentación no dice.**
   tipos reales son `audio`, `image` y `location`, y sí coinciden con la
   documentación (que no era de dar por hecho, viendo que los campos del cuerpo no
   coincidían).
-- **Pendiente y concreto: la DESCARGA de un medio contra Meta de verdad.** Desde
-  el 2026-08-02 Chasqui se trae el archivo y lo guarda, y eso está probado de
-  punta a punta contra un Meta falso (`tests/frontera_medios.rs`). Lo que ese
-  sustituto **no** puede desmentir son tres cosas que salen de la documentación:
-  que la ficha del medio traiga `url`, que la descarga exija la cabecera
-  `Authorization` aunque la URL parezca completa, y que venga `file_size`. Si
-  alguna falla, el síntoma será un medio en estado `fallido` **con su motivo** en
-  el panel — está escrito para fallar así y no en silencio.
+- ~~La DESCARGA de un medio contra Meta de verdad~~ — **hecha el 2026-08-02, ver
+  abajo**.
 - ~~Cuánto tarda el envío de verdad~~ — **medido**: unos 4 s del mensaje entrante
   a la primera respuesta en el móvil, y 0,64 s entre el aviso de privacidad y la
   respuesta (el segundo envío ya no paga el webhook).
@@ -310,6 +304,30 @@ conversación ya estaba en `esperando_humano` por la nota de voz, y la regla del
 dominio es que ahí el bot calla: contestar sería hablar por encima de la persona
 que ya tiene el caso. Tampoco se duplicó el escalado — hay uno, no dos. Es la
 primera vez que esa regla se ve funcionando fuera de las pruebas.
+
+### 5.3 La descarga de medios, contra Meta real (2026-08-02, 12:35)
+
+Ese mismo día se construyó la descarga de archivos, y esto es lo que quedó
+medido con un teléfono de verdad:
+
+| Lo que se mandó | Lo que guardó Chasqui |
+|---|---|
+| Una foto | `image/jpeg`, **56 243 bytes**, JPEG 899×1599 |
+| Una nota de voz | `audio/ogg`, **11 146 bytes**, Ogg/Opus mono 16 kHz |
+| Una ubicación | `6.0265235, -75.6994566` — sin descargar nada |
+
+Con eso quedan **confirmadas las tres suposiciones que salían de la
+documentación** y que el sustituto de Graph no podía desmentir: la ficha del
+medio trae `url`, la descarga funciona mandando el token en `Authorization`, y
+lo que baja es el archivo entero y no una versión recortada.
+
+Y una trampa de método que costó un rato: para saber si el panel empotrado era
+el nuevo, lo primero que se hizo fue `grep` al binario buscando `api/medios`.
+Dio **cero**, y casi se acusa a `build.rs` de no empotrar la interfaz. La sonda
+estaba mal: `rust-embed` comprime lo que empotra, así que la cadena no aparece
+aunque esté. Lo que resolvió la duda fue **preguntarle al servidor que estaba
+corriendo** —`curl` al `chunk-*.js` que sirve— y ahí sí estaba. El panel viejo
+que se veía en pantalla era la caché del navegador, no el binario.
 
 ---
 
