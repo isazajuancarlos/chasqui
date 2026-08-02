@@ -91,18 +91,22 @@ import { Api, Mensaje } from './api';
     </form>
   `,
   styles: [`
-    .barra { display: flex; align-items: center; gap: 1rem; }
+    .barra { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
     h2 { font-size: 1.1rem; }
     .hilo { display: flex; flex-direction: column; gap: .4rem; margin: 1rem 0;
             max-height: 60vh; overflow-y: auto; }
+    /* «overflow-wrap» porque el texto lo escribe un desconocido: una URL larga
+       sin espacios estira la burbuja hasta sacar el hilo de la pantalla, y en un
+       móvil eso deja la conversación entera desplazada a la derecha. */
     .burbuja { background: #eceff1; border-radius: .6rem; padding: .5rem .75rem;
-               max-width: 34rem; align-self: flex-start; }
+               max-width: min(34rem, 100%); align-self: flex-start;
+               overflow-wrap: anywhere; }
     .burbuja.mia { background: #d7f0d7; align-self: flex-end; }
     .burbuja p { margin: 0; white-space: pre-wrap; }
     .cuando { font-size: .7rem; color: #666; }
     .adjunto { display: block; max-width: 100%; max-height: 18rem; border-radius: .4rem;
                margin: .4rem 0; }
-    audio.adjunto { width: 18rem; max-height: none; }
+    audio.adjunto { width: min(18rem, 100%); max-height: none; }
     .archivo { display: inline-block; margin: .4rem 0; }
     .nota { margin: .4rem 0; font-size: .85rem; color: #555; }
     .nota.falta { color: #8a5300; }

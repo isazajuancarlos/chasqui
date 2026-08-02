@@ -36,7 +36,11 @@ import { Api } from './api';
   `,
   styles: [`
     .centro { display: flex; justify-content: center; padding-top: 4rem; }
-    mat-card { width: 22rem; }
+    @media (max-width: 34rem) { .centro { padding-top: 1.5rem; } }
+    /* 22rem son 352 px: en un teléfono de 360 px la tarjeta se salía de la
+       pantalla y había que desplazar en horizontal para escribir la contraseña.
+       Es la primera pantalla que ve quien atiende. */
+    mat-card { width: min(22rem, 100%); }
     form { display: flex; flex-direction: column; gap: .5rem; }
     .error { color: var(--mat-sys-error, #b3261e); margin: 0 0 .5rem; }
   `],

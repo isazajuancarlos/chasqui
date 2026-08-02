@@ -56,14 +56,20 @@ import { Api, Conversacion, Escalado } from './api';
     h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
     .vacio { color: #666; }
     .fila { margin-bottom: .5rem; }
-    .cabeza { display: flex; align-items: center; gap: .75rem; }
+    /* «wrap» y no un ancho fijo: en 360 px el contacto, el motivo y la fecha
+       no caben en una línea, y sin envolver la fecha se sale de la tarjeta. */
+    .cabeza { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
     .cuando { color: #666; font-size: .85rem; margin-left: auto; }
     .detalle { margin: .5rem 0; color: #444; white-space: pre-wrap; }
-    .acciones { display: flex; gap: .5rem; }
+    .acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
     .conv { display: flex; gap: .75rem; align-items: center; padding: .5rem .75rem;
             border-bottom: 1px solid #e0e0e0; text-decoration: none; color: inherit; }
     .conv:hover { background: #f5f5f5; }
-    .canal { font-size: .75rem; text-transform: uppercase; color: #666; width: 5.5rem; }
+    /* Ancho fijo para que los canales queden en columna en un escritorio, pero
+       que pueda encogerse: en un móvil, 5,5rem de etiqueta más el número más el
+       estado empujaban el estado fuera de la fila. */
+    .canal { font-size: .75rem; text-transform: uppercase; color: #666;
+             width: 5.5rem; flex: 0 1 5.5rem; }
     .estado { font-size: .85rem; color: #666; }
   `],
 })

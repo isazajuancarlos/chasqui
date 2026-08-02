@@ -28,6 +28,19 @@ import { Api } from './api';
     .hueco { flex: 1; }
     .quien { font-size: .9rem; opacity: .8; margin-right: .5rem; }
     main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
+
+    /* En un teléfono no caben «Chasqui» + tres enlaces + el nombre + «Salir».
+       Sin esto la barra se sale por la derecha y «Salir» queda fuera de la
+       pantalla: quien atiende no puede cerrar sesión desde el móvil.
+       Se envuelve en dos filas y se recorta lo prescindible —el nombre de
+       quien entró, que ya se sabe— antes que los botones. */
+    @media (max-width: 34rem) {
+      mat-toolbar { height: auto; flex-wrap: wrap; padding: .25rem .5rem; row-gap: .25rem; }
+      .marca { margin-right: .5rem; }
+      .hueco { flex: 0; }
+      .quien { display: none; }
+      main { padding: .75rem .5rem; }
+    }
   `],
 })
 export class App {

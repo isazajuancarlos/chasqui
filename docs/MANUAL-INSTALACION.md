@@ -14,6 +14,31 @@ de un tercero.
 
 ---
 
+## Requisitos del servidor — medidos, no supuestos
+
+`ldd` sobre el binario, el 2026-08-02:
+
+| Necesita | Nota |
+|---|---|
+| Linux x86-64 | |
+| **glibc 2.34 o superior** | Debian 12+, Ubuntu 22.04+, Rocky 9+. Debian 11, RHEL 8 y Amazon Linux 2 **no sirven** |
+| `libm`, `libgcc_s` | están en cualquier Linux |
+
+Y nada más: **ni OpenSSL, ni SQLite, ni un runtime**. Todo va dentro del
+ejecutable, incluido el panel. Se copia y se ejecuta.
+
+Comprobación en el servidor del cliente antes de subir nada:
+
+```bash
+ldd --version | head -1      # tiene que decir 2.34 o más
+```
+
+Si algún día aparece un cliente con un servidor viejo, la salida es compilar
+estático contra musl (`--target x86_64-unknown-linux-musl`). Requiere un
+compilador de C para musl en la máquina de compilación, que hoy no está montado
+— y no se montó porque los servidores reales de nuestros clientes son Debian 13
+y Ubuntu 24.04, muy por encima del mínimo.
+
 ## 0. Lo que hay que tener antes de tocar el servidor
 
 Del cliente, por un canal seguro (nunca WhatsApp ni correo en claro):

@@ -45,6 +45,7 @@ para alguien distinto:
 
 | Guía | Para quién |
 |---|---|
+| [`docs/MANUAL-USUARIO.md`](docs/MANUAL-USUARIO.md) | **Quien atiende**: la cola, contestar, los archivos, y el botón de borrar que no se deshace |
 | [`docs/MANUAL-CLIENTE-META.md`](docs/MANUAL-CLIENTE-META.md) | **El cliente**, que pelea con la consola de Meta y nos entrega cuatro datos |
 | [`docs/MANUAL-INSTALACION.md`](docs/MANUAL-INSTALACION.md) | **Quien instala**: el orden real, las comprobaciones y las cuatro cosas que fallan |
 | [`despliegue/INSTALAR.md`](despliegue/INSTALAR.md) | El servidor: usuario propio, systemd, TLS, respaldos |

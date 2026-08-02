@@ -55,9 +55,16 @@ import { Api, Pedido } from './api';
     h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
     .nota, .vacio { color: #666; font-size: .9rem; }
     .fila { margin-bottom: .75rem; }
-    .cabecera { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+    .cabecera { display: flex; justify-content: space-between; align-items: baseline;
+                gap: 1rem; flex-wrap: wrap; }
     .cuando { color: #666; font-size: .85rem; }
-    .campos { margin: .5rem 0; border-collapse: collapse; }
+    /* Una dirección larga en la celda de al lado estira la tabla y saca la
+       tarjeta de la pantalla del teléfono. «table-layout: fixed» reparte el
+       ancho disponible y «word-break» parte lo que no cabe: un pedido con la
+       dirección cortada se lee; uno que hay que desplazar en horizontal, no. */
+    .campos { margin: .5rem 0; border-collapse: collapse; width: 100%;
+              table-layout: fixed; }
+    .campos td { overflow-wrap: anywhere; }
     .campos th {
       text-align: left; font-weight: 500; color: #666; padding: .15rem 1rem .15rem 0;
       vertical-align: top; white-space: nowrap;
