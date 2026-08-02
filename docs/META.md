@@ -56,7 +56,17 @@ Todo lo que exige una cuenta de Meta:
 
 ## Los pasos
 
-### 0. El muro real: la verificación del negocio
+### 0. El muro real: la verificación del negocio — **superado el 2026-08-02**
+
+> **Ya está.** La verificación se aprobó el **mismo día** en que se envió:
+> Centro de seguridad → «Verificación para ISAZA ARENAS JUAN CARLOS · Verificado
+> originalmente el Aug 02, 2026 · ✅ Verificada», y en Cuentas de WhatsApp la
+> cuenta pasó a «Verificación del negocio: Verificado / Estado de la cuenta:
+> Aprobada». Meta anunciaba **dos días laborables** y tardó horas — la espera que
+> este documento daba por segura (veredicto hacia el 2026-08-05) no ocurrió.
+> Acto seguido, «Solicitar número de prueba» dejó de fallar y entregó el número.
+> **Lo que sigue en esta sección se conserva porque es lo que verá el cliente**:
+> él tendrá que pasar el mismo muro con su NIT.
 
 **Medido el 2026-08-02 con la cuenta de Juan.** El número de prueba gratuito NO
 se entrega si el portafolio comercial no está verificado. La consola lo dice en
@@ -117,6 +127,19 @@ Meta da entonces:
 - un **token temporal** (24 h; para probar sobra),
 - y hasta **5 números de destino** que hay que verificar con un código. **Ponga
   el suyo**: es al que le va a escribir el bot.
+
+Entregado el 2026-08-02, ya con el negocio verificado, para la app
+`chasqui-atencion` (`1033169316303198`):
+
+| Dato | Valor |
+|---|---|
+| Número de prueba | `+1 (555) 670-5915` |
+| `phone_number_id` | `1221911424344798` |
+| WhatsApp Business Account ID | `1903916413906447` |
+
+El **token no se escribe aquí**: dura 24 h y se copia de la consola en el
+momento de probar. El destinatario todavía está sin registrar — ese es el
+siguiente clic, y pide un código al teléfono de Juan.
 
 ### 2. Levantar Chasqui con los secretos de la app
 
