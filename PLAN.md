@@ -203,7 +203,8 @@ lleva el [`README.md`](README.md), y por encima de los dos manda el repositorio.
 | Credenciales del cliente cifradas en reposo | **hecho** (`guaca`, sobre Quipu) |
 | Leer los datos del cliente (su API) | **hecho** — ver [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
 | Panel para atender y configurar | **hecho** — Angular Material dentro del binario |
-| Flujos y toma de pedidos | pendiente |
+| Flujos de varios pasos y toma de pedidos | **hecho** — lo piden TRES de las cinco peticiones; el pedido armado se registra y se escala para despacharlo |
+| Entregar el pedido al sistema del cliente (costura 3) | pendiente — no lo pide ninguna de las cinco |
 
 Y una costura que este plan no separaba y que hay que separar, porque de ella
 depende media venta: **integrarse con los sistemas del cliente no es lo mismo que

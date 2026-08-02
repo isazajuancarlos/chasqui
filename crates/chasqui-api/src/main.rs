@@ -17,8 +17,12 @@ use clap::{Parser, Subcommand};
 
 use chasqui_api::config::Config;
 use chasqui_api::{router, servicio::Servicio};
-use chasqui_datos::{ajuste, conocimiento, consulta as consulta_bd, cuenta, documento, escalado, retencion, usuario};
+use chasqui_datos::{
+    ajuste, conocimiento, consulta as consulta_bd, cuenta, documento, escalado,
+    flujo as bd_flujo, pedido, retencion, usuario,
+};
 use chasqui_dominio::consulta::{Consulta, Metodo, TipoDato};
+use chasqui_dominio::flujo::{Flujo, Paso};
 use chasqui_dominio::Canal;
 
 #[derive(Parser)]
@@ -48,6 +52,14 @@ enum Orden {
     /// Las consultas al sistema del cliente (su API).
     #[command(subcommand)]
     Consulta(OrdenConsulta),
+    /// Los flujos de varios pasos: tomar un pedido, agendar una cita.
+    #[command(subcommand)]
+    Flujo(OrdenFlujo),
+    /// Los pedidos que armaron los flujos.
+    Pedidos {
+        #[arg(long, default_value_t = 20)]
+        limite: i64,
+    },
     /// Quién está esperando a una persona.
     Escalados,
     /// Borra lo que pasó del plazo de retención configurado.
@@ -174,6 +186,18 @@ enum OrdenConocimiento {
 }
 
 #[derive(Subcommand)]
+enum OrdenFlujo {
+    /// Carga flujos de un archivo JSON:
+    /// `[{"titulo":"…","disparadores":["…"],"confirmacion":"… {clave} …",
+    ///    "pasos":[{"clave":"…","pregunta":"…","tipo_dato":"numero"}]}]`
+    ///
+    /// `tipo_dato` es opcional: sin él, el paso recoge texto libre. Cargar un
+    /// flujo con el mismo título REEMPLAZA el anterior entero.
+    Cargar { archivo: String },
+    Listar,
+}
+
+#[derive(Subcommand)]
 enum OrdenConsulta {
     /// Carga consultas de un archivo JSON. **El archivo puede llevar las
     /// credenciales del cliente hacia su propio sistema**: se cifran al
@@ -188,6 +212,24 @@ struct EntradaJson {
     titulo: String,
     respuesta: String,
     disparadores: Vec<String>,
+}
+
+/// Un flujo tal como lo escribe el cliente en un archivo.
+#[derive(serde::Deserialize)]
+struct FlujoJson {
+    titulo: String,
+    disparadores: Vec<String>,
+    confirmacion: String,
+    pasos: Vec<PasoJson>,
+}
+
+#[derive(serde::Deserialize)]
+struct PasoJson {
+    clave: String,
+    pregunta: String,
+    /// `numero`, `correo`, `codigo`; ausente para texto libre.
+    #[serde(default)]
+    tipo_dato: Option<String>,
 }
 
 /// Una consulta tal como la escribe el cliente en un archivo.
@@ -307,6 +349,74 @@ async fn ejecutar() -> Result<(), Box<dyn std::error::Error>> {
         Orden::Ajuste(OrdenAjuste::Listar) => {
             for (clave, valor) in ajuste::todos(&pool).await? {
                 println!("{clave} = {valor}");
+            }
+            Ok(())
+        }
+
+        Orden::Flujo(OrdenFlujo::Cargar { archivo }) => {
+            let texto = std::fs::read_to_string(&archivo)?;
+            let brutos: Vec<FlujoJson> = serde_json::from_str(&texto)?;
+            let cuantos = brutos.len();
+
+            for bruto in brutos {
+                let mut pasos = Vec::with_capacity(bruto.pasos.len());
+                for p in bruto.pasos {
+                    // Un tipo que no existe NO se degrada a texto libre: eso
+                    // aceptaría «unas pocas» como cantidad y el pedido llegaría
+                    // al negocio con un campo inservible (directiva 20).
+                    let tipo_dato = match p.tipo_dato.as_deref() {
+                        None | Some("") => None,
+                        Some(t) => Some(TipoDato::desde_ranura(t).ok_or_else(|| {
+                            format!(
+                                "«{}», paso «{}»: «{t}» no es un tipo de dato. Son: numero, \
+                                 correo, codigo — o ninguno para texto libre.",
+                                bruto.titulo, p.clave
+                            )
+                        })?),
+                    };
+                    pasos.push(Paso { clave: p.clave, pregunta: p.pregunta, tipo_dato });
+                }
+
+                let flujo = Flujo {
+                    id: 0,
+                    titulo: bruto.titulo,
+                    disparadores: bruto.disparadores,
+                    pasos,
+                    confirmacion: bruto.confirmacion,
+                };
+                // `guardar` valida antes de escribir; el error dice qué arreglar.
+                bd_flujo::guardar(&pool, &flujo).await?;
+            }
+
+            println!("{cuantos} flujos cargados desde {archivo}");
+            Ok(())
+        }
+
+        Orden::Flujo(OrdenFlujo::Listar) => {
+            let flujos = bd_flujo::todos(&pool).await?;
+            if flujos.is_empty() {
+                println!("no hay flujos configurados");
+            }
+            for f in flujos {
+                println!("#{}  {}  ({} pasos)", f.id, f.titulo, f.pasos.len());
+                for (i, p) in f.pasos.iter().enumerate() {
+                    let tipo = p.tipo_dato.map_or("texto libre", |t| t.ranura());
+                    println!("    {}. {} [{tipo}]  {}", i + 1, p.clave, p.pregunta);
+                }
+            }
+            Ok(())
+        }
+
+        Orden::Pedidos { limite } => {
+            let pedidos = pedido::recientes(&pool, limite).await?;
+            if pedidos.is_empty() {
+                println!("no hay pedidos");
+            }
+            for p in pedidos {
+                println!("#{}  {}  {}  {}", p.id, p.creado_en.to_rfc3339(), p.contacto, p.titulo);
+                for (clave, valor) in &p.campos {
+                    println!("    {clave}: {valor}");
+                }
             }
             Ok(())
         }

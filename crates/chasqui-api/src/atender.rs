@@ -21,7 +21,7 @@ use chrono::Utc;
 
 use chasqui_datos::{
     ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado,
-    mensaje as bd_mensaje,
+    flujo as bd_flujo, mensaje as bd_mensaje, pedido,
 };
 use chasqui_dominio::atencion::{Accion, Contexto, Motivo, atender};
 use chasqui_dominio::conversacion::Estado;
@@ -98,6 +98,7 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
     let guion = ajuste::cargar_guion(pool).await?;
     let base = conocimiento::activas(pool).await?;
     let consultas = bd_consulta::activas(pool).await?;
+    let flujos = bd_flujo::activos(pool).await?;
 
     // Los documentos solo se traen si hay modelo: sin quien redacte, unos
     // fragmentos no se le pueden enseñar a nadie. Así el dominio no necesita
@@ -117,6 +118,8 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
         consultas: &consultas,
         documentos: &documentos,
         esperando: conv.esperando,
+        flujos: &flujos,
+        en_flujo: conv.en_flujo.as_ref(),
     });
 
     let adaptador = servicio.canal(entrante.canal);
@@ -148,6 +151,34 @@ pub async fn procesar(servicio: &Servicio, entrante: &MensajeEntrante) -> Result
 
             Accion::OlvidarEspera => {
                 conversacion::poner_espera(pool, conv.id, None).await?;
+            }
+
+            Accion::SeguirFlujo(curso) => {
+                conversacion::poner_flujo(pool, conv.id, Some(&curso)).await?;
+            }
+
+            Accion::SalirDelFlujo => {
+                conversacion::poner_flujo(pool, conv.id, None).await?;
+            }
+
+            // El pedido se guarda ANTES de que salga la confirmación… no: sale
+            // después, porque el dominio pone `Enviar` primero. Y es lo correcto
+            // —quien pidió merece su acuse cuanto antes—, pero significa que un
+            // fallo aquí dejaría a alguien confirmado sin pedido registrado. Por
+            // eso esto NO se traga el error: sube, el webhook responde mal y Meta
+            // reintenta. Un pedido perdido en silencio es el peor fallo posible
+            // de esta pieza.
+            Accion::RegistrarPedido { flujo_id, titulo, campos } => {
+                pedido::registrar(
+                    pool,
+                    flujo_id,
+                    &titulo,
+                    conv.id,
+                    &entrante.contacto,
+                    &campos,
+                    ahora,
+                )
+                .await?;
             }
 
             Accion::PreguntarAlModelo { instrucciones, peticion } => {

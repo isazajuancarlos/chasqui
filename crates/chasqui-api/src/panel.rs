@@ -20,7 +20,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado, mensaje as bd_mensaje, retencion, usuario};
+use chasqui_datos::{ajuste, conocimiento, consulta as bd_consulta, conversacion, cuenta, documento, escalado, flujo as bd_flujo, mensaje as bd_mensaje, pedido, retencion, usuario};
 use chasqui_dominio::conversacion::Estado;
 use chasqui_dominio::{Canal, MensajeSaliente};
 
@@ -565,6 +565,98 @@ pub struct ConsultaJson {
 }
 
 /// `GET /api/consultas`
+/// Un flujo, para el panel. Con sus pasos: sin ellos no se puede saber qué
+/// recoge, que es lo único que importa mirarlo.
+#[derive(Serialize)]
+pub struct FlujoJson {
+    id: i64,
+    titulo: String,
+    disparadores: Vec<String>,
+    confirmacion: String,
+    pasos: Vec<PasoJson>,
+}
+
+#[derive(Serialize)]
+pub struct PasoJson {
+    clave: String,
+    pregunta: String,
+    /// `numero`, `correo`, `codigo`, o nada para texto libre.
+    tipo_dato: Option<&'static str>,
+}
+
+pub async fn flujos(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
+    match bd_flujo::todos(&servicio.pool).await {
+        Ok(lista) => Json(
+            lista
+                .into_iter()
+                .map(|f| FlujoJson {
+                    id: f.id,
+                    titulo: f.titulo,
+                    disparadores: f.disparadores,
+                    confirmacion: f.confirmacion,
+                    pasos: f
+                        .pasos
+                        .into_iter()
+                        .map(|p| PasoJson {
+                            clave: p.clave,
+                            pregunta: p.pregunta,
+                            tipo_dato: p.tipo_dato.map(|t| t.ranura()),
+                        })
+                        .collect(),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => fallo("listar flujos", e),
+    }
+}
+
+pub async fn activar_flujo(
+    Agente(_): Agente,
+    State(servicio): State<Servicio>,
+    Path(id): Path<i64>,
+    Json(cuerpo): Json<ActivaJson>,
+) -> Response {
+    match bd_flujo::activar(&servicio.pool, id, cuerpo.activa).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        // Un id que no existe NO se responde 204: quien apaga un flujo desde el
+        // panel tiene que enterarse de que no apagó nada (directiva 20).
+        Ok(false) => (StatusCode::NOT_FOUND, Json(json_error("ese flujo no existe"))).into_response(),
+        Err(e) => fallo("activar el flujo", e),
+    }
+}
+
+/// Un pedido armado, para el panel. **Es lo que el negocio tiene que despachar.**
+#[derive(Serialize)]
+pub struct PedidoJson {
+    id: i64,
+    titulo: String,
+    contacto: String,
+    conversacion_id: i64,
+    campos: Vec<(String, String)>,
+    creado_en: String,
+}
+
+pub async fn pedidos(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
+    match pedido::recientes(&servicio.pool, 100).await {
+        Ok(lista) => Json(
+            lista
+                .into_iter()
+                .map(|p| PedidoJson {
+                    id: p.id,
+                    titulo: p.titulo,
+                    contacto: p.contacto,
+                    conversacion_id: p.conversacion_id,
+                    campos: p.campos,
+                    creado_en: p.creado_en.to_rfc3339(),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => fallo("listar pedidos", e),
+    }
+}
+
 pub async fn consultas(Agente(_): Agente, State(servicio): State<Servicio>) -> Response {
     match bd_consulta::listar(&servicio.pool).await {
         Ok(lista) => Json(

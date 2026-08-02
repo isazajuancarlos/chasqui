@@ -22,6 +22,21 @@ pub struct Guion {
     pub escalando: String,
     /// Frases con las que quien escribe pide una persona explícitamente.
     pub palabras_escalado: Vec<String>,
+    /// Frases con las que se sale de un flujo de varios pasos.
+    ///
+    /// **Solo significan algo DENTRO de un flujo.** Fuera, «cancelar» es una
+    /// palabra más de una frase: tratarla como orden rompería a quien pregunta
+    /// «¿puedo cancelar un pedido?», que es la pregunta más normal del mundo en
+    /// un chat de atención (directiva 21).
+    pub palabras_cancelar: Vec<String>,
+    /// Lo que dice al salirse de un flujo.
+    pub cancelado: String,
+    /// Se añade a la PRIMERA pregunta de un flujo, para anunciar la salida.
+    ///
+    /// Vacío lo apaga. Existe porque un flujo captura la conversación —un paso de
+    /// texto libre se queda con lo que llegue— y una captura sin salida anunciada
+    /// es el bot que el cliente apaga a las dos semanas.
+    pub aviso_flujo: String,
 }
 
 /// Por qué un guion no sirve. Cada variante es una salida distinta a propósito:
@@ -56,17 +71,34 @@ impl Guion {
         if self.escalando.trim().is_empty() {
             return Err(ErrorGuion::TextoAusente("escalando"));
         }
+        if self.cancelado.trim().is_empty() {
+            return Err(ErrorGuion::TextoAusente("cancelado"));
+        }
         Ok(())
     }
 
     /// ¿Está pidiendo una persona?
     pub fn pide_persona(&self, mensaje: &str) -> bool {
-        let texto = crate::texto::normalizar(mensaje);
-        self.palabras_escalado.iter().any(|p| {
-            let aguja = crate::texto::normalizar(p);
-            crate::texto::contiene_palabras(&texto, &aguja)
-        })
+        contiene_alguna(mensaje, &self.palabras_escalado)
     }
+
+    /// ¿Está pidiendo salir del flujo? **Preguntar esto fuera de un flujo no
+    /// tiene sentido**: quien llama es responsable de hacerlo solo dentro.
+    pub fn pide_cancelar(&self, mensaje: &str) -> bool {
+        contiene_alguna(mensaje, &self.palabras_cancelar)
+    }
+}
+
+/// ¿Alguna de estas frases aparece completa en el mensaje?
+///
+/// Por palabras completas y no por subcadena: «asesor» está dentro de
+/// «asesoría», y con subcadenas quien pregunta por asesorías acabaría en la cola.
+fn contiene_alguna(mensaje: &str, frases: &[String]) -> bool {
+    let texto = crate::texto::normalizar(mensaje);
+    frases.iter().any(|p| {
+        let aguja = crate::texto::normalizar(p);
+        !aguja.is_empty() && crate::texto::contiene_palabras(&texto, &aguja)
+    })
 }
 
 #[cfg(test)]
@@ -79,6 +111,9 @@ mod pruebas {
             sin_respuesta: "No tengo esa respuesta.".into(),
             escalando: "Le paso con una persona.".into(),
             palabras_escalado: vec!["hablar con una persona".into(), "asesor".into()],
+            palabras_cancelar: vec!["cancelar".into(), "ya no".into()],
+            cancelado: "Listo, lo dejamos ahí.".into(),
+            aviso_flujo: "(Puede escribir «cancelar» en cualquier momento.)".into(),
         }
     }
 
@@ -135,5 +170,33 @@ mod pruebas {
         let mut g = guion();
         g.palabras_escalado.clear();
         assert!(!g.pide_persona("hablar con una persona"));
+    }
+
+    #[test]
+    fn sin_el_texto_de_cancelado_tampoco_vale() {
+        // Va en `validar` y no en un defecto silencioso: si faltara, el bot se
+        // quedaría MUDO justo al salirse de un pedido a medias.
+        let mut g = guion();
+        g.cancelado = "  ".into();
+        assert_eq!(g.validar(), Err(ErrorGuion::TextoAusente("cancelado")));
+    }
+
+    #[test]
+    fn reconoce_la_cancelacion_pero_no_por_subcadena() {
+        let g = guion();
+        assert!(g.pide_cancelar("cancelar por favor"));
+        assert!(g.pide_cancelar("ya no, gracias"));
+        // «cancelar» dentro de otra palabra no cuenta.
+        assert!(!g.pide_cancelar("quiero cancelarlo todo"));
+    }
+
+    #[test]
+    fn una_frase_vacia_en_la_lista_no_lo_dispara_todo() {
+        // El caso rojo: `contiene_palabras(texto, "")` podría ser cierto siempre,
+        // y entonces CUALQUIER mensaje cancelaría el flujo. Una fila en blanco en
+        // el panel es de lo más fácil de dejar por accidente.
+        let mut g = guion();
+        g.palabras_cancelar = vec!["".into(), "  ".into()];
+        assert!(!g.pide_cancelar("hola, quiero tres sillas"));
     }
 }

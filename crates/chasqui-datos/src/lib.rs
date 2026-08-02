@@ -19,7 +19,9 @@ pub mod conversacion;
 pub mod documento;
 pub mod cuenta;
 pub mod escalado;
+pub mod flujo;
 pub mod mensaje;
+pub mod pedido;
 pub mod respaldo;
 pub mod retencion;
 pub mod secreto;
@@ -51,6 +53,9 @@ pub enum Error {
 
     #[error(transparent)]
     Guion(#[from] chasqui_dominio::guion::ErrorGuion),
+
+    #[error(transparent)]
+    Flujo(#[from] chasqui_dominio::flujo::ErrorFlujo),
 
     #[error(
         "falta el ajuste «{0}» en la base. No hay valor por defecto: se configura en el panel \

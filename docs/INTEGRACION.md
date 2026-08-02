@@ -153,6 +153,17 @@ firmado con HMAC (lo mismo que Meta hace con nosotros, y por lo mismo).
 Con eso el bot entra en su CRM, su ERP o su correo sin que nosotros sepamos cuál
 es.
 
+**Estado (2026-08-01): pendiente, y NO bloquea la toma de pedidos.** Los flujos
+de varios pasos ya funcionan y el pedido armado se entrega por dos vías que no
+necesitan esta costura: queda registrado —`chasqui pedidos`, `GET /api/pedidos`—
+y **llama a una persona** para que lo despache. Eso es el producto entero para un
+negocio pequeño, que es quien contesta en Workana.
+
+Esta costura es lo que hace falta cuando el cliente **ya tiene** un sistema al
+que meter el pedido. Se construye cuando aparezca ese cliente: ninguna de las
+cinco peticiones la nombra, y un webhook saliente hacia una URL que nadie ha
+configurado es código tras una bandera que nadie enciende.
+
 ## Costura 4 — La API de Chasqui, para que sus aplicaciones lo consuman
 
 El panel Angular que va embebido en el binario va a hablar con una API REST:

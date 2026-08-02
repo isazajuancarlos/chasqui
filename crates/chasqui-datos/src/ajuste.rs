@@ -19,6 +19,9 @@ pub const AVISO: &str = "guion.aviso_privacidad";
 pub const SIN_RESPUESTA: &str = "guion.sin_respuesta";
 pub const ESCALANDO: &str = "guion.escalando";
 pub const PALABRAS_ESCALADO: &str = "guion.palabras_escalado";
+pub const PALABRAS_CANCELAR: &str = "guion.palabras_cancelar";
+pub const CANCELADO: &str = "guion.cancelado";
+pub const AVISO_FLUJO: &str = "guion.aviso_flujo";
 
 /// Cuántos días se guardan las conversaciones. **Sin sembrar a propósito**: el
 /// plazo lo decide el cliente, que es el responsable del tratamiento. Sin él no
@@ -68,18 +71,28 @@ pub async fn cargar_guion(pool: &SqlitePool) -> Resultado<Guion> {
         leer(pool, clave).await?.ok_or_else(|| Error::AjusteAusente(clave.to_string()))
     }
 
-    let guion = Guion {
-        aviso_privacidad: requerido(pool, AVISO).await?,
-        sin_respuesta: requerido(pool, SIN_RESPUESTA).await?,
-        escalando: requerido(pool, ESCALANDO).await?,
-        palabras_escalado: leer(pool, PALABRAS_ESCALADO)
-            .await?
+    /// Una frase por línea, sin las vacías. Una fila en blanco en el panel es de
+    /// lo más fácil de dejar por accidente, y una frase vacía casaría con todo.
+    fn frases(valor: Option<String>) -> Vec<String> {
+        valor
             .unwrap_or_default()
             .lines()
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())
             .map(|l| l.to_string())
-            .collect(),
+            .collect()
+    }
+
+    let guion = Guion {
+        aviso_privacidad: requerido(pool, AVISO).await?,
+        sin_respuesta: requerido(pool, SIN_RESPUESTA).await?,
+        escalando: requerido(pool, ESCALANDO).await?,
+        cancelado: requerido(pool, CANCELADO).await?,
+        palabras_escalado: frases(leer(pool, PALABRAS_ESCALADO).await?),
+        palabras_cancelar: frases(leer(pool, PALABRAS_CANCELAR).await?),
+        // El único que puede faltar sin más: vaciarlo es apagarlo, y es una
+        // cortesía, no una regla.
+        aviso_flujo: leer(pool, AVISO_FLUJO).await?.unwrap_or_default(),
     };
 
     // La validación del dominio es la que manda: aquí solo se comprueba que

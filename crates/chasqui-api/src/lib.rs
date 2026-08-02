@@ -157,6 +157,10 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/conocimiento/{id}", patch(panel::activar_pregunta))
         .route("/consultas", get(panel::consultas))
         .route("/consultas/{id}", patch(panel::activar_consulta))
+        // Los flujos de varios pasos y lo que producen.
+        .route("/flujos", get(panel::flujos))
+        .route("/flujos/{id}", patch(panel::activar_flujo))
+        .route("/pedidos", get(panel::pedidos))
         .route("/cuentas", get(panel::cuentas))
         .route("/documentos", get(panel::documentos))
         .route("/documentos/{id}", patch(panel::activar_documento))

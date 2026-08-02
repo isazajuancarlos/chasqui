@@ -51,9 +51,15 @@ const TABLAS: &[&str] = &[
     "cuenta_canal",
     "documento",
     "escalado",
+    "flujo",
+    "flujo_paso",
     "intento_acceso",
     "mensaje",
     "modelo",
+    // Los pedidos armados por un flujo. La prueba de arriba los cazó el día que
+    // nacieron: sin ella, el respaldo habría seguido diciéndose «verificado»
+    // habiendo ignorado la tabla donde vive lo que el negocio vende.
+    "pedido",
     "supresion",
     "usuario",
 ];
@@ -468,13 +474,18 @@ mod pruebas {
         let copia = dir.join("copia");
         respaldar(&url, &copia).await.unwrap();
 
-        // Se le machacan bytes en medio del archivo, dejando la cabecera de
-        // SQLite intacta: así el archivo se abre y es el `integrity_check` quien
-        // tiene que cazarlo, no el `open`.
+        // Se machaca TODO menos la primera página, que lleva la cabecera de
+        // SQLite: así el archivo se abre —y es el `integrity_check` quien tiene
+        // que cazarlo, no el `open`— y da igual cuántas tablas tenga el esquema.
+        //
+        // La primera versión revolvía 200 bytes en la mitad exacta del archivo y
+        // se puso verde sola al crecer el esquema: el punto medio cayó en una
+        // página libre. Una prueba cuyo veredicto depende del tamaño del archivo
+        // mide otra cosa (directiva 16).
         let bd = copia.join(NOMBRE_COPIA);
         let mut bytes = std::fs::read(&bd).unwrap();
-        let medio = bytes.len() / 2;
-        for b in &mut bytes[medio..medio + 200] {
+        assert!(bytes.len() > 4096, "la copia cabe en una página; no hay qué corromper");
+        for b in &mut bytes[4096..] {
             *b ^= 0xFF;
         }
         std::fs::write(&bd, &bytes).unwrap();

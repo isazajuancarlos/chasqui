@@ -34,8 +34,9 @@ mercado, no de suposiciones. Lo construido hasta hoy:
 | Panel para atender y configurar | **funciona** — Angular Material dentro del binario |
 | Respaldo en caliente, verificado | **funciona** — `VACUUM INTO`, y la copia se abre y se compara antes de darse por buena |
 | Despliegue en el servidor del cliente | **funciona** — plantillas de systemd y nginx, y [`despliegue/INSTALAR.md`](despliegue/INSTALAR.md) |
+| Flujos de varios pasos y toma de pedidos | **funciona** — el bot recoge los datos uno a uno, arma el pedido y llama a una persona para despacharlo |
 | Canal web y aplicación móvil | pendiente — el diseño está en [`docs/INTEGRACION.md`](docs/INTEGRACION.md) |
-| Flujos y toma de pedidos | pendiente |
+| Entregar el pedido al sistema del cliente (webhook saliente) | pendiente — hoy llega por el panel |
 
 ## Cómo se instala y se pone a andar
 
@@ -75,6 +76,10 @@ chasqui ajuste poner retencion.dias 90
 #    credenciales: se cifran al guardarlas y luego se borra el archivo.
 chasqui consulta cargar consultas.json
 
+# 6b. Opcional: los flujos de varios pasos —tomar un pedido, agendar una cita—.
+#     Se rechazan al cargarlos si están mal, no a mitad de una conversación.
+chasqui flujo cargar flujos.json
+
 # 7. Quién entra al panel a atender. La contraseña, por la entrada estándar.
 chasqui usuario crear --correo ana@acme.com --nombre Ana
 
@@ -94,6 +99,37 @@ conversaciones no salen del servidor del cliente.
 `chasqui olvidar --contacto 573001…` ejerce el derecho de supresión y deja la
 constancia; `chasqui purgar` borra lo que pasó del plazo (y se hace solo cada
 24 h mientras el servidor esté levantado).
+
+## Los flujos: recoger un pedido paso a paso
+
+Se declaran en un JSON y no se programan:
+
+```json
+[{ "titulo": "Toma de pedido",
+   "disparadores": ["quiero hacer un pedido"],
+   "confirmacion": "Anotado: {cantidad} de {producto} para {direccion}.",
+   "pasos": [
+     { "clave": "producto",  "pregunta": "¿Qué producto desea?" },
+     { "clave": "cantidad",  "pregunta": "¿Cuántas unidades?", "tipo_dato": "numero" },
+     { "clave": "direccion", "pregunta": "¿A qué dirección lo enviamos?" }
+   ]}]
+```
+
+`tipo_dato` (`numero`, `correo`, `codigo`) valida lo que llega; sin él, el paso
+recoge texto libre. Al terminar, el pedido se guarda —`chasqui pedidos` y el
+panel lo enumeran— y **se llama a una persona para que lo despache**: un pedido
+que solo queda en la base es un pedido que nadie atiende.
+
+Mientras un flujo está en curso **se queda con los mensajes**, porque un paso de
+texto libre no puede distinguir una dirección de un cambio de tema. Por eso tiene
+tres salidas, y la primera pregunta las anuncia: pedir una persona, escribir
+«cancelar», o no contestar un paso con dato tipado dos veces seguidas. En los tres
+casos, **lo ya recogido viaja al escalado** para que quien atienda no vuelva a
+preguntarlo todo.
+
+Un flujo mal configurado —una `{clave}` en la confirmación que no es ningún
+paso— se rechaza **al cargarlo**, no al enviarlo: si no, el cliente recibiría la
+frase con un hueco justo al confirmar su pedido.
 
 `chasqui respaldar <carpeta>` copia la base **en caliente**, sin parar el
 servicio, y **verifica la copia antes de darla por buena**: la abre, le pasa

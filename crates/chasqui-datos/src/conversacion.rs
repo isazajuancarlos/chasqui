@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
 
 use chasqui_dominio::conversacion::{Estado, ventana_cerrada};
+use chasqui_dominio::flujo::EnCurso;
 
 use crate::{Error, Resultado};
 
@@ -26,6 +27,8 @@ pub struct Conversacion {
     /// llegado. Es una pista y no una relación: si el cliente borra la consulta,
     /// el dominio sigue su camino normal.
     pub esperando: Option<i64>,
+    /// El flujo de varios pasos a medias, si lo hay. También es una pista.
+    pub en_flujo: Option<EnCurso>,
 }
 
 impl Conversacion {
@@ -70,11 +73,65 @@ fn leer(fila: sqlx::sqlite::SqliteRow) -> Resultado<Conversacion> {
         ultimo_en: momento(&fila, "ultimo_en", id)?,
         aviso_en: aviso.map(|t| fecha(&t, "aviso_en", id)).transpose()?,
         esperando: fila.try_get("esperando_consulta")?,
+        en_flujo: en_flujo(&fila, id)?,
     })
 }
 
-const COLUMNAS: &str =
-    "id, cuenta_id, contacto, estado, abierta_en, ultimo_en, aviso_en, esperando_consulta";
+/// El flujo a medias, si lo hay.
+///
+/// Las tres columnas se leen JUNTAS y solo cuentan si están las tres: un
+/// `flujo_id` sin lo recogido —o con un JSON que no se puede leer— es un estado
+/// que el dominio nunca produce, y arrancar de ahí capturaría la conversación
+/// sin saber en qué paso va. Se trata como «no hay flujo», que es el estado
+/// seguro: el mensaje siguiente sigue su camino normal.
+fn en_flujo(fila: &sqlx::sqlite::SqliteRow, id: i64) -> Resultado<Option<EnCurso>> {
+    let Some(flujo_id): Option<i64> = fila.try_get("flujo_id")? else {
+        return Ok(None);
+    };
+    let bruto: Option<String> = fila.try_get("flujo_recogido")?;
+    let recogido: Vec<(String, String)> = match bruto.as_deref() {
+        None | Some("") => Vec::new(),
+        Some(j) => serde_json::from_str(j).map_err(|_| Error::ValorInvalido {
+            tabla: "conversacion",
+            id,
+            columna: "flujo_recogido",
+            valor: j.to_string(),
+        })?,
+    };
+    let repreguntado: i64 = fila.try_get("flujo_repreguntado")?;
+    Ok(Some(EnCurso { flujo_id, recogido, repreguntado: repreguntado != 0 }))
+}
+
+/// Las columnas que `leer` necesita. **Una sola lista.**
+///
+/// Antes había dos —una constante y otra escrita a mano en `listar`, porque allí
+/// llevan prefijo de tabla—, y al añadir las tres del flujo solo se actualizó la
+/// primera: `listar` seguía compilando y devolvía 500 en la pantalla principal
+/// del panel. Lo cazó la prueba que cruza la frontera, no el compilador. Con una
+/// lista y dos formas de escribirla, esa deriva no puede volver a existir.
+const CAMPOS: &[&str] = &[
+    "id",
+    "cuenta_id",
+    "contacto",
+    "estado",
+    "abierta_en",
+    "ultimo_en",
+    "aviso_en",
+    "esperando_consulta",
+    "flujo_id",
+    "flujo_recogido",
+    "flujo_repreguntado",
+];
+
+/// `id, cuenta_id, …`
+fn columnas() -> String {
+    CAMPOS.join(", ")
+}
+
+/// `c.id, c.cuenta_id, …`, para las consultas con unión.
+fn columnas_de(alias: &str) -> String {
+    CAMPOS.iter().map(|c| format!("{alias}.{c}")).collect::<Vec<_>>().join(", ")
+}
 
 /// La conversación viva de este contacto, o una nueva si la ventana se cerró.
 ///
@@ -89,8 +146,9 @@ pub async fn abrir_o_continuar(
     horas_ventana: i64,
 ) -> Resultado<Conversacion> {
     let viva = sqlx::query(&format!(
-        "SELECT {COLUMNAS} FROM conversacion
-         WHERE cuenta_id = ?1 AND contacto = ?2 AND cerrada_en IS NULL"
+        "SELECT {} FROM conversacion
+         WHERE cuenta_id = ?1 AND contacto = ?2 AND cerrada_en IS NULL",
+        columnas()
     ))
     .bind(cuenta_id)
     .bind(contacto)
@@ -138,6 +196,7 @@ pub async fn abrir_o_continuar(
         ultimo_en: ahora,
         aviso_en: None,
         esperando: None,
+        en_flujo: None,
     })
 }
 
@@ -152,6 +211,36 @@ pub async fn poner_espera(pool: &SqlitePool, id: i64, consulta: Option<i64>) -> 
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+/// Guarda el flujo en curso, o lo borra con `None`.
+///
+/// Las tres columnas se escriben **en la misma sentencia** y siempre las tres.
+/// Actualizar solo una dejaría un `flujo_id` con lo recogido de otro flujo, que
+/// es el estado que `en_flujo` tiene que descartar al leer — y aquí es donde se
+/// impide que llegue a existir.
+pub async fn poner_flujo(pool: &SqlitePool, id: i64, curso: Option<&EnCurso>) -> Resultado<()> {
+    let (flujo_id, recogido, repreguntado) = match curso {
+        None => (None, None, 0),
+        Some(c) => (
+            Some(c.flujo_id),
+            // No puede fallar: es una lista de pares de cadenas.
+            Some(serde_json::to_string(&c.recogido).unwrap_or_else(|_| "[]".into())),
+            i64::from(c.repreguntado),
+        ),
+    };
+
+    sqlx::query(
+        "UPDATE conversacion \
+         SET flujo_id = ?1, flujo_recogido = ?2, flujo_repreguntado = ?3 WHERE id = ?4",
+    )
+    .bind(flujo_id)
+    .bind(recogido)
+    .bind(repreguntado)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -190,16 +279,17 @@ pub struct EnLista {
 /// Ese orden y no el de apertura: quien atiende mira lo que está pasando ahora,
 /// y una conversación de ayer con un mensaje nuevo es lo que está pasando ahora.
 pub async fn listar(pool: &SqlitePool, limite: i64) -> Resultado<Vec<EnLista>> {
-    // Las columnas van a mano y no por `COLUMNAS`: aquí llevan el prefijo de la
-    // tabla, y con la unión hace falta decir de cuál sale cada una.
-    let filas = sqlx::query(
-        "SELECT c.id, c.cuenta_id, c.contacto, c.estado, c.abierta_en, c.ultimo_en, c.aviso_en,
-                c.esperando_consulta, k.canal AS canal_ranura,
+    // Las columnas salen de la MISMA lista que usa `leer`, con el prefijo de la
+    // tabla que la unión obliga a poner. Escribirlas a mano aquí fue justo lo que
+    // dejó esta consulta sin las columnas del flujo.
+    let filas = sqlx::query(&format!(
+        "SELECT {}, k.canal AS canal_ranura,
                 (SELECT COUNT(*) FROM mensaje m WHERE m.conversacion_id = c.id) AS cuantos
          FROM conversacion c JOIN cuenta_canal k ON k.id = c.cuenta_id
          WHERE c.cerrada_en IS NULL
          ORDER BY c.ultimo_en DESC LIMIT ?1",
-    )
+        columnas_de("c")
+    ))
     .bind(limite)
     .fetch_all(pool)
     .await?;
@@ -223,7 +313,10 @@ pub async fn listar(pool: &SqlitePool, limite: i64) -> Resultado<Vec<EnLista>> {
 
 /// Una conversación por id. Para el panel.
 pub async fn por_id(pool: &SqlitePool, id: i64) -> Resultado<Option<Conversacion>> {
-    let fila = sqlx::query(&format!("SELECT {COLUMNAS} FROM conversacion WHERE id = ?1"))
+    let fila = sqlx::query(&format!(
+        "SELECT {} FROM conversacion WHERE id = ?1",
+        columnas()
+    ))
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -233,6 +326,53 @@ pub async fn por_id(pool: &SqlitePool, id: i64) -> Resultado<Option<Conversacion
 #[cfg(test)]
 mod pruebas {
     use super::*;
+
+    /// El flujo en curso tiene que sobrevivir a TODOS los caminos de lectura.
+    ///
+    /// Existe porque `listar` escribía sus columnas a mano y se quedó sin las del
+    /// flujo: compilaba, y devolvía 500 en la pantalla principal del panel. Una
+    /// prueba por cada lector es lo que impide que la deriva vuelva por otra
+    /// consulta.
+    #[tokio::test]
+    async fn el_flujo_en_curso_vuelve_por_los_tres_caminos_de_lectura() {
+        use chasqui_dominio::flujo::EnCurso;
+
+        let pool = crate::pruebas::base_de_prueba().await;
+        sqlx::query(
+            "INSERT INTO cuenta_canal (canal, id_externo, nombre, token_cifrado, creada_en) \
+             VALUES ('whatsapp', 'PNID-1', 'Ventas', x'00', '2026-08-01T00:00:00+00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ahora = Utc::now();
+        let conv = abrir_o_continuar(&pool, 1, "573001", ahora, 24).await.unwrap();
+
+        let curso = EnCurso {
+            flujo_id: 7,
+            recogido: vec![("producto".into(), "sillas".into())],
+            repreguntado: true,
+        };
+        poner_flujo(&pool, conv.id, Some(&curso)).await.unwrap();
+
+        // 1. Por `abrir_o_continuar`, que es el camino del webhook.
+        let vuelta = abrir_o_continuar(&pool, 1, "573001", ahora, 24).await.unwrap();
+        assert_eq!(vuelta.en_flujo.as_ref(), Some(&curso));
+
+        // 2. Por `por_id`, que es el camino del panel al abrir una conversación.
+        let una = por_id(&pool, conv.id).await.unwrap().unwrap();
+        assert_eq!(una.en_flujo.as_ref(), Some(&curso));
+
+        // 3. Por `listar`, que es la pantalla principal — la que se rompió.
+        let lista = listar(&pool, 10).await.unwrap();
+        assert_eq!(lista[0].conversacion.en_flujo.as_ref(), Some(&curso));
+
+        // Y borrarlo lo borra de verdad por los tres.
+        poner_flujo(&pool, conv.id, None).await.unwrap();
+        assert!(por_id(&pool, conv.id).await.unwrap().unwrap().en_flujo.is_none());
+        assert!(listar(&pool, 10).await.unwrap()[0].conversacion.en_flujo.is_none());
+    }
     use crate::cuenta;
     use crate::pruebas::base_de_prueba;
     use crate::Boveda;

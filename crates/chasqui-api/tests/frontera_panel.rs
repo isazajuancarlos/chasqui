@@ -57,6 +57,17 @@ struct Instancia {
     hijo: Child,
     base: String,
     dir: std::path::PathBuf,
+    /// Para poder seguir administrando por la línea de órdenes con el servidor
+    /// ya arriba, que es exactamente como lo hace quien instala esto.
+    bd: String,
+    graph: String,
+    puerto: u16,
+}
+
+impl Instancia {
+    fn orden(&self) -> Command {
+        orden(&self.bd, &self.graph, self.puerto)
+    }
 }
 
 impl Drop for Instancia {
@@ -123,7 +134,14 @@ async fn instancia(nombre: &str, graph: &str) -> Instancia {
     // `Drop` mata al hijo al salir del pánico. Sin esto, cada prueba que falle
     // deja un servidor vivo ocupando un puerto — y la siguiente falla por eso,
     // que es como un fallo se convierte en cinco.
-    let instancia = Instancia { hijo, base: format!("http://127.0.0.1:{puerto}"), dir };
+    let instancia = Instancia {
+        hijo,
+        base: format!("http://127.0.0.1:{puerto}"),
+        dir,
+        bd,
+        graph: graph.to_string(),
+        puerto,
+    };
     let cliente = reqwest::Client::new();
     for _ in 0..100 {
         if let Ok(r) = cliente.get(format!("{}/salud", instancia.base)).send().await
@@ -878,4 +896,153 @@ async fn el_panel_no_entrega_la_clave_del_modelo_ni_el_contenido_de_los_document
         .unwrap();
     assert_eq!(modelo["con_clave"], true);
     assert_eq!(modelo["nombre"], "modelo-de-prueba");
+}
+
+// --- Flujos de varios pasos y toma de pedidos ---
+
+/// El pedido completo, de punta a punta y por HTTP.
+///
+/// **Esta es la prueba de la petición nº1 de Workana** —«facilitar el proceso de
+/// toma de pedidos directamente a través de la conversación»— y no hay ninguna
+/// otra que la sostenga: las de dominio miden la máquina de estados con datos en
+/// memoria, y lo que hay entre esa máquina y un pedido registrado es el webhook,
+/// la base, el envío a Meta y la cola del panel. Aquí se arranca el binario de
+/// verdad, se carga el flujo por su línea de órdenes y se le escribe como escribe
+/// un cliente.
+#[tokio::test]
+async fn un_cliente_hace_un_pedido_entero_por_whatsapp() {
+    let (graph, bitacora) = graph_falso().await;
+    let instancia = instancia("pedido", &graph).await;
+
+    // El cliente configura su flujo, como en la guía.
+    let archivo = instancia.dir.join("flujos.json");
+    std::fs::write(
+        &archivo,
+        r#"[{
+          "titulo": "Toma de pedido",
+          "disparadores": ["quiero hacer un pedido"],
+          "confirmacion": "Anotado: {cantidad} de {producto} para {direccion}. Gracias.",
+          "pasos": [
+            {"clave": "producto",  "pregunta": "¿Qué producto desea?"},
+            {"clave": "cantidad",  "pregunta": "¿Cuántas unidades?", "tipo_dato": "numero"},
+            {"clave": "direccion", "pregunta": "¿A qué dirección lo enviamos?"}
+          ]
+        }]"#,
+    )
+    .unwrap();
+    let salida = instancia
+        .orden()
+        .args(["flujo", "cargar", archivo.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(salida.status.success(), "no se cargó el flujo: {salida:?}");
+
+    // Y ahora, la conversación.
+    escribe_un_cliente(&instancia.base, "m1", "573001", "hola, quiero hacer un pedido").await;
+    esperar(&bitacora, 2).await; // aviso de privacidad + primera pregunta
+
+    escribe_un_cliente(&instancia.base, "m2", "573001", "sillas de madera").await;
+    esperar(&bitacora, 3).await;
+
+    // Un mensaje que NO trae número: el bot repregunta y no avanza.
+    escribe_un_cliente(&instancia.base, "m3", "573001", "unas cuantas").await;
+    esperar(&bitacora, 4).await;
+
+    escribe_un_cliente(&instancia.base, "m4", "573001", "3").await;
+    esperar(&bitacora, 5).await;
+
+    escribe_un_cliente(&instancia.base, "m5", "573001", "Calle 5 #3-20").await;
+    esperar(&bitacora, 6).await;
+
+    let dichos = textos(&bitacora);
+    assert!(dichos[0].contains(AVISO), "el aviso legal no salió primero: {dichos:?}");
+    assert!(dichos[1].starts_with("¿Qué producto desea?"), "{dichos:?}");
+    // El aviso de salida va SOLO en la primera pregunta.
+    assert!(dichos[1].contains("cancelar"), "no se anunció la salida: {dichos:?}");
+    assert_eq!(dichos[2], "¿Cuántas unidades?");
+    assert_eq!(dichos[3], "¿Cuántas unidades?", "no repreguntó: {dichos:?}");
+    assert_eq!(dichos[4], "¿A qué dirección lo enviamos?");
+    assert_eq!(dichos[5], "Anotado: 3 de sillas de madera para Calle 5 #3-20. Gracias.");
+
+    // El pedido existe, con sus campos y en orden.
+    let navegador = navegador();
+    let sesion = navegador
+        .post(format!("{}/api/sesion", instancia.base))
+        .json(&json!({ "correo": CORREO, "clave": CLAVE }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sesion.status(), 200, "no se pudo entrar al panel");
+
+    let pedidos: Value = navegador
+        .get(format!("{}/api/pedidos", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let pedido = &pedidos.as_array().unwrap()[0];
+    assert_eq!(pedido["titulo"], "Toma de pedido");
+    assert_eq!(pedido["contacto"], "573001");
+    assert_eq!(pedido["campos"][0][0], "producto");
+    assert_eq!(pedido["campos"][0][1], "sillas de madera");
+    assert_eq!(pedido["campos"][1][1], "3");
+    assert_eq!(pedido["campos"][2][1], "Calle 5 #3-20");
+
+    // Y alguien tiene que despacharlo: sin esto, el pedido se queda en la base y
+    // el negocio se entera por el cliente enfadado.
+    let cola: Value = navegador
+        .get(format!("{}/api/escalados", instancia.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let primero = &cola.as_array().unwrap()[0];
+    assert_eq!(primero["motivo"], "pedido_completo", "el pedido no llegó a la cola: {cola}");
+    let detalle = primero["detalle"].as_str().unwrap();
+    assert!(detalle.contains("producto: sillas de madera"), "{detalle}");
+    assert!(detalle.contains("direccion: Calle 5 #3-20"), "{detalle}");
+
+    // La misma orden que usaría quien administra el servidor.
+    let listado = instancia.orden().arg("pedidos").output().unwrap();
+    let texto = String::from_utf8_lossy(&listado.stdout);
+    assert!(texto.contains("Calle 5 #3-20"), "«chasqui pedidos» no lo enseña: {texto}");
+}
+
+/// Un flujo mal configurado NO llega a la base. Se rechaza al cargarlo y no a
+/// mitad de la conversación de un cliente, donde el error lo vería quien no
+/// puede arreglarlo.
+#[tokio::test]
+async fn un_flujo_con_una_clave_inventada_se_rechaza_al_cargarlo() {
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("flujo-malo", &graph).await;
+
+    let archivo = instancia.dir.join("malo.json");
+    std::fs::write(
+        &archivo,
+        r#"[{
+          "titulo": "Roto",
+          "disparadores": ["hacer pedido"],
+          "confirmacion": "Anotado para {telefono}.",
+          "pasos": [{"clave": "producto", "pregunta": "¿Qué producto?"}]
+        }]"#,
+    )
+    .unwrap();
+
+    let salida = instancia
+        .orden()
+        .args(["flujo", "cargar", archivo.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!salida.status.success(), "se cargó un flujo inválido");
+    let error = String::from_utf8_lossy(&salida.stderr);
+    assert!(error.contains("telefono"), "el error no dice qué arreglar: {error}");
+
+    // Y no quedó nada a medias.
+    let listado = instancia.orden().args(["flujo", "listar"]).output().unwrap();
+    let texto = String::from_utf8_lossy(&listado.stdout);
+    assert!(texto.contains("no hay flujos"), "quedó un flujo roto: {texto}");
 }

@@ -24,6 +24,12 @@ fn ranura(motivo: &Motivo) -> &'static str {
         Motivo::NoSabe(_) => "no_sabe",
         Motivo::NoSoportado(_) => "no_soportado",
         Motivo::FalloTecnico(_) => "fallo_tecnico",
+        // Los dos de un flujo van con ranura propia: en la cola, «hay un pedido
+        // listo para despachar» y «alguien no supo contestar» son trabajos
+        // distintos, y meterlos bajo el mismo nombre los haría indistinguibles
+        // justo donde se decide a cuál acudir primero.
+        Motivo::PedidoCompleto(_) => "pedido_completo",
+        Motivo::PedidoIncompleto(_) => "pedido_incompleto",
     }
 }
 
@@ -35,6 +41,9 @@ fn detalle(motivo: &Motivo) -> &str {
         Motivo::NoSabe(t) => t,
         Motivo::NoSoportado(t) => t,
         Motivo::FalloTecnico(t) => t,
+        // Aquí va el pedido entero, que es lo que ve quien lo va a despachar.
+        Motivo::PedidoCompleto(t) => t,
+        Motivo::PedidoIncompleto(t) => t,
     }
 }
 
