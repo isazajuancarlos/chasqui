@@ -6,8 +6,10 @@
 no el producto contra el mundo. Hasta que un mensaje de WhatsApp real entre y
 salga, no se compromete una fecha de entrega con nadie.
 
-Y **no hace falta ni cliente, ni dinero, ni verificación de negocio**: la consola
-de desarrollador de Meta da un número de prueba gratuito.
+No hace falta ni cliente ni dinero: la consola de desarrollador de Meta da un
+número de prueba gratuito. **Sí hace falta la verificación del negocio**, y eso
+es un cambio: hasta el 2026-08-02 aquí ponía que no, y era falso — ver
+«El muro real» más abajo.
 
 ---
 
@@ -54,11 +56,47 @@ Todo lo que exige una cuenta de Meta:
 
 ## Los pasos
 
+### 0. El muro real: la verificación del negocio
+
+**Medido el 2026-08-02 con la cuenta de Juan.** El número de prueba gratuito NO
+se entrega si el portafolio comercial no está verificado. La consola lo dice en
+el Administrador de WhatsApp, sobre la propia cuenta de prueba:
+
+> **Cuenta restringida.** Para poder empezar a enviar mensajes, tendrás que
+> verificar tu negocio.
+
+Y en el asistente de la app, al pulsar «Solicitar número de prueba»:
+
+> No puedes continuar con esta operación porque tu cuenta de WhatsApp Business
+> está restringida.
+
+Las dos cuentas de WhatsApp del portafolio Xiliux salieron restringidas —la
+«Test WhatsApp Business Account» incluida—, así que no se arregla eligiendo
+otra: es el **negocio**, no la cuenta. La verificación se lanza desde
+Configuración → Información del negocio → **Verificación del negocio → Iniciar
+verificación**, y pide documento legal a nombre de quien se verifica.
+
+Esto no cambia el modelo de venta —el cliente pone SUS credenciales y es él
+quien pasa la verificación con su NIT—, pero sí quiere decir que **la prueba
+punta a punta de Chasqui espera a que Juan verifique su propio negocio**.
+
 ### 1. Crear la app en Meta (una vez)
 
+El flujo cambió: ya no se elige «Tipo: Negocio» y se añade el producto WhatsApp
+a mano. **El tipo lo fija el caso de uso, y no se puede convertir después**: una
+app de «Tipo: Ninguno» no ofrece WhatsApp entre sus productos, y en Configuración
+→ Básica no hay ningún control para cambiarlo. Comprobado el 2026-08-02: una app
+de tipo Ninguno lista 11 productos y ninguno es WhatsApp.
+
 1. `developers.facebook.com` → **Mis apps** → **Crear app**.
-2. Tipo: **Negocio**.
-3. Añadir el producto **WhatsApp**.
+2. Nombre: **no puede contener «whatsapp»** ni ninguna marca de Meta; lo rechaza
+   con un aviso rojo.
+3. Casos de uso → **«Conectarte con los clientes a través de WhatsApp»**.
+4. Negocio: seleccionar el **portafolio comercial** (lo exige este caso de uso).
+5. Meta pide **la contraseña de la cuenta** antes de crearla.
+
+Con eso la app queda con el producto WhatsApp y la sección «Casos de uso →
+Personalizar → Paso 1. Pruébalo», que es donde se pide el número de prueba.
 
 Meta da entonces:
 
