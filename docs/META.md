@@ -144,7 +144,7 @@ Personalizar → Paso 1. Pruébalo», que es donde se pide el número de prueba.
 Meta da entonces:
 
 - un **número de prueba** con un `phone_number_id`,
-- un **token temporal** (24 h; para probar sobra),
+- un **token temporal que NO dura 24 horas** — ver «Lo del token» más abajo,
 - y hasta **5 números de destino** que hay que verificar con un código. **Ponga
   el suyo**: es al que le va a escribir el bot.
 
@@ -157,9 +157,9 @@ Entregado el 2026-08-02, ya con el negocio verificado, para la app
 | `phone_number_id` | `1221911424344798` |
 | WhatsApp Business Account ID | `1903916413906447` |
 
-El **token no se escribe aquí**: dura 24 h y se copia de la consola en el
-momento de probar. El destinatario todavía está sin registrar — ese es el
-siguiente clic, y pide un código al teléfono de Juan.
+El **token no se escribe aquí**: se copia de la consola en el momento de probar,
+y caduca antes de lo que dice la documentación (ver «Lo del token»). El
+destinatario —el móvil de Juan— quedó registrado ese mismo día.
 
 ### 2. Levantar Chasqui con los secretos de la app
 
@@ -251,7 +251,8 @@ documentación no dice.**
 - ~~Cuánto tarda el envío de verdad~~ — **medido**: unos 4 s del mensaje entrante
   a la primera respuesta en el móvil, y 0,64 s entre el aviso de privacidad y la
   respuesta (el segundo envío ya no paga el webhook).
-- Qué devuelve Meta cuando **el token caduca** a las 24 h.
+- ~~Qué devuelve Meta cuando **el token caduca**~~ — **medido**, y de paso se
+  descubrió que no dura lo que decía. Ver «Lo del token».
 
 Con eso se cierra esta tarea. Sin eso, «funciona» quiere decir «funciona contra
 un Meta que escribimos nosotros», que no es lo mismo.
@@ -304,6 +305,32 @@ conversación ya estaba en `esperando_humano` por la nota de voz, y la regla del
 dominio es que ahí el bot calla: contestar sería hablar por encima de la persona
 que ya tiene el caso. Tampoco se duplicó el escalado — hay uno, no dos. Es la
 primera vez que esa regla se ve funcionando fuera de las pruebas.
+
+### 5.2 bis — Lo del token: no dura 24 horas, dura una sesión
+
+**Medido el 2026-08-02.** El token que la consola llama «temporal» y que todo el
+mundo —esta guía incluida— daba por bueno durante 24 horas, murió en **tres
+horas y media**: se tomó a las 09:29 y a las 13:00 Meta contestaba
+
+```
+Error validating access token: Session has expired on Sunday, 02-Aug-26 11:00:00 PDT
+type: OAuthException   code: 190   error_subcode: 463
+```
+
+El mensaje lo dice: es un token **de sesión**, atado al momento de entrar en la
+consola, no un token con vida propia de un día. Y no caduca «a las 24 h de
+tomarlo» sino **a una hora fija**, así que quien lo copie a las 8 de la mañana
+tendrá menos margen que quien lo copie a las 8 de la noche.
+
+Por qué importa más de lo que parece: un cliente que siga esta guía creyendo que
+tiene el día cubierto verá su bot dejar de contestar a media tarde con un 401
+que él no va a leer. **Para operar de verdad hace falta el token permanente de un
+usuario del sistema**, no este.
+
+Lo que sí funcionó, y es la mitad que importa: Chasqui **no se lo tragó**. El
+envío fallido creó un escalado `fallo_tecnico` con el error de Meta dentro y pasó
+la conversación a `esperando_humano`, así que una persona lo ve en la cola. Un
+fallo de envío que solo fuera al registro es un cliente ignorado en silencio.
 
 ### 5.3 La descarga de medios, contra Meta real (2026-08-02, 12:35)
 
