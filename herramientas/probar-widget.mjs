@@ -102,7 +102,12 @@ comprobar('el servidor emitió el identificador y el navegador lo guardó', !!id
 
 // Y se escribe.
 raiz.querySelector('.pie input').value = 'cuanto vale';
-raiz.querySelector('.pie').dispatchEvent(new dom.window.Event('submit'));
+// Se PULSA el botón, como una persona. La versión anterior despachaba un
+// `submit` sintético, y eso enviaba el formulario de verdad: la página del
+// cliente navegaba a «/?» y la conversación se repetía en bucle. El widget ya
+// no tiene formulario, pero la prueba tampoco debe inventarse gestos que una
+// persona no hace.
+raiz.querySelector('.pie button').click();
 
 let lineas = [];
 for (let i = 0; i < 60; i++) {
@@ -112,11 +117,43 @@ for (let i = 0; i < 60; i++) {
 }
 
 console.log('  hilo:', JSON.stringify(lineas));
+// El fallo que se vio en un navegador de verdad: al mandar, la página del
+// cliente navegaba a «/?» y todo empezaba otra vez.
+comprobar(
+  'mandar NO navega la página del cliente',
+  dom.window.location.href === SITIO + '/',
+  `acabó en ${dom.window.location.href}`,
+);
+comprobar('no se repitió el mensaje', lineas.filter((l) => l === 'cuanto vale').length === 1);
 comprobar('lo escrito aparece en el hilo', lineas[0] === 'cuanto vale');
 comprobar('el aviso de privacidad sale antes que la respuesta', /trata/i.test(lineas[1] || ''));
 comprobar('el bot contesta la pregunta frecuente', /50\.000/.test(lineas[2] || ''));
 comprobar('cada lado se pinta del suyo', raiz.querySelector('.mio') && raiz.querySelector('.bot'));
 comprobar('no hubo errores durante la conversación', errores.length === 0, errores.join(' | '));
+
+// --- ENTER ---
+//
+// Es lo único que daba el <form> que se quitó, así que es lo primero que se
+// rompe al quitarlo. Se manda una tecla de verdad, no se llama a la función.
+raiz.querySelector('.pie input').value = 'horario';
+raiz.querySelector('.pie input').dispatchEvent(
+  new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+);
+
+let conEnter = [];
+for (let i = 0; i < 40; i++) {
+  await new Promise((r) => setTimeout(r, 150));
+  conEnter = [...raiz.querySelectorAll('.linea')].map((l) => l.textContent);
+  if (conEnter.length > lineas.length + 1) break;
+}
+comprobar('Enter manda el mensaje', conEnter.includes('horario'));
+comprobar('y el bot contesta', conEnter.some((l) => /lunes a s/i.test(l)));
+comprobar(
+  'Enter tampoco navega la página',
+  dom.window.location.href === SITIO + '/',
+  `acabó en ${dom.window.location.href}`,
+);
+lineas = conEnter;
 
 dom.window.close();
 

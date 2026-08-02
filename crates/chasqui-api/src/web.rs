@@ -435,6 +435,27 @@ mod pruebas {
     }
 
     #[test]
+    fn el_widget_no_lleva_un_formulario_que_pueda_navegar_la_pagina_del_cliente() {
+        // El fallo que se vio en un navegador de verdad: el chat tenía un
+        // `<form>` sin `action`, así que un envío inesperado mandaba la página
+        // del CLIENTE a «/?» — y con ella se iba lo que el visitante estuviera
+        // haciendo en su sitio. `preventDefault` lo tapaba, que es un mecanismo
+        // para contener lo que creó otro; sin formulario no hay nada que
+        // prevenir (directiva 1).
+        let widget = include_str!("widget.js");
+        assert!(
+            !widget.contains("'  <form"),
+            "volvió el formulario: un envío inesperado se lleva la página del cliente"
+        );
+        assert!(
+            !widget.contains("type=\"submit\""),
+            "un botón de envío dentro de la página de otro puede navegarla"
+        );
+        // Y lo que el formulario daba tiene que seguir estando.
+        assert!(widget.contains("e.key === 'Enter'"), "Enter dejó de mandar el mensaje");
+    }
+
+    #[test]
     fn el_widget_no_se_pone_oscuro_por_su_cuenta() {
         // Se vio mirándolo en un navegador de verdad y en ninguna prueba: con el
         // sistema del VISITANTE en oscuro, el chat salía negro encima de una

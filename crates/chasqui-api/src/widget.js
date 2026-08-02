@@ -110,11 +110,22 @@
     '<section class="panel" role="dialog" aria-label="Chat">',
     '  <div class="cabecera"></div>',
     '  <div class="hilo" aria-live="polite"></div>',
-    '  <form class="pie">',
+    // NO HAY <form>, y es la decisión más importante de este archivo.
+    //
+    // Un formulario sin `action` envía a la URL actual, así que CUALQUIER envío
+    // inesperado —un `submit` sintético, un navegador con su propia idea, un
+    // fallo antes del `preventDefault`— **se lleva por delante la página del
+    // cliente**. Se vio: la barra de direcciones acabó en «/?» y la conversación
+    // se repetía sola en un bucle.
+    //
+    // `preventDefault` tapaba eso, que es un mecanismo puesto para contener lo
+    // que creó otro. Sin formulario no hay envío que prevenir: se manda con el
+    // botón y con Enter, que es todo lo que el formulario daba.
+    '  <div class="pie">',
     '    <input type="text" autocomplete="off" placeholder="Escriba su mensaje…" ',
     '           aria-label="Su mensaje">',
-    '    <button type="submit">Enviar</button>',
-    '  </form>',
+    '    <button type="button">Enviar</button>',
+    '  </div>',
     '</section>',
   ].join('\n');
 
@@ -122,7 +133,7 @@
   var panel = raiz.querySelector('.panel');
   var cabecera = raiz.querySelector('.cabecera');
   var hilo = raiz.querySelector('.hilo');
-  var forma = raiz.querySelector('.pie');
+  var pie = raiz.querySelector('.pie');
   var campo = raiz.querySelector('.pie input');
   var enviar = raiz.querySelector('.pie button');
 
@@ -199,8 +210,7 @@
     }
   });
 
-  forma.addEventListener('submit', function (e) {
-    e.preventDefault();
+  function mandar() {
     var texto = campo.value.trim();
     if (!texto) return;
     campo.value = '';
@@ -221,6 +231,16 @@
       .then(traer)
       .catch(function () {})
       .then(function () { enviar.disabled = false; campo.focus(); });
+  }
+
+  enviar.addEventListener('click', mandar);
+  // Enter manda, que es lo único que daba el formulario. Se excluye el Enter con
+  // modificadores: quien pulsa Mayúsculas+Enter no está mandando.
+  campo.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      mandar();
+    }
   });
 
   document.addEventListener('visibilitychange', function () {
