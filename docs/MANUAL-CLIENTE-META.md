@@ -116,10 +116,11 @@ Cuatro datos. Los tres primeros no cambian; el cuarto sí, y ojo con él.
 | **Token de acceso** | Ver abajo |
 
 **Tercera trampa: el token que ofrece la consola NO dura 24 horas.** Aunque la
-documentación diga lo contrario, es un token **de sesión**: se muere cuando se
-acaba su sesión en la consola, a una hora fija. En nuestra prueba duró **tres
-horas y media**. Si nos entrega ese token, el bot dejará de responder esa misma
-tarde.
+documentación diga lo contrario, es un token **de sesión** que vence en una hora
+fija del reloj, no a las 24 horas de copiarlo. Lo medimos dos veces el mismo día:
+uno duró tres horas y media y el otro **una hora y media**. Si nos entrega ese
+token, el bot dejará de responder esa misma tarde — y si lo copia justo antes del
+corte, en minutos.
 
 Para operar hay que crear un **token permanente**, que se hace una vez:
 

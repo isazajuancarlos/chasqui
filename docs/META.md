@@ -317,10 +317,18 @@ Error validating access token: Session has expired on Sunday, 02-Aug-26 11:00:00
 type: OAuthException   code: 190   error_subcode: 463
 ```
 
-El mensaje lo dice: es un token **de sesión**, atado al momento de entrar en la
-consola, no un token con vida propia de un día. Y no caduca «a las 24 h de
-tomarlo» sino **a una hora fija**, así que quien lo copie a las 8 de la mañana
-tendrá menos margen que quien lo copie a las 8 de la noche.
+El mensaje lo dice: es un token **de sesión**. Y con dos mediciones el patrón se
+ve mejor que con una:
+
+| Token | Copiado | Caducó | Duró |
+|---|---|---|---|
+| Primero | 09:29 | 13:00 | 3 h 31 |
+| Segundo | 13:23 | 15:00 | 1 h 37 |
+
+Los dos vencieron en **hora par exacta** (11:00 y 13:00 PDT). O sea: no dura «24
+horas», ni siquiera «unas tres horas» — vence en un límite fijo del reloj, así
+que **cuánto le queda depende de cuándo lo copie**. Quien lo tome a las 14:58
+tiene dos minutos.
 
 Por qué importa más de lo que parece: un cliente que siga esta guía creyendo que
 tiene el día cubierto verá su bot dejar de contestar a media tarde con un 401
