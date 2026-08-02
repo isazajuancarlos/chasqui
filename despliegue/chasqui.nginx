@@ -17,6 +17,7 @@
 # quedará sin ellas por usar otro proxy.
 
 # Las zonas se definen UNA vez, en el bloque http {} (nginx.conf), no aquí:
+#   (o copie `chasqui-zonas.conf` a /etc/nginx/conf.d/, que es lo mismo escrito)
 #   limit_req_zone $binary_remote_addr zone=chasqui_login:10m rate=5r/m;
 #   limit_req_zone $binary_remote_addr zone=chasqui_panel:10m rate=30r/s;
 #   limit_req_zone $binary_remote_addr zone=chasqui_web:10m   rate=2r/s;
