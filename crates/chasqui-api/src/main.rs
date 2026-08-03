@@ -792,6 +792,16 @@ async fn servir(config: Config, pool: sqlx::SqlitePool) -> Result<(), Box<dyn st
     tokio::spawn(purga_diaria(pool.clone()));
 
     let servicio = Servicio::nuevo(&config, pool);
+
+    // Los archivos que se quedaron a medias: si el proceso se cayó entre anotar
+    // la fila y bajar los bytes, nadie volvía a mirarla y la foto de un cliente
+    // se quedaba «pendiente» para siempre. Va en una tarea aparte porque el
+    // servidor no puede esperar a que bajen: Meta reintenta mientras tanto.
+    {
+        let servicio = servicio.clone();
+        tokio::spawn(async move { chasqui_api::atender::reintentar_pendientes(&servicio, 100).await });
+    }
+
     let direccion = std::net::SocketAddr::new(config.escucha, config.puerto);
     let escucha = tokio::net::TcpListener::bind(direccion).await?;
 

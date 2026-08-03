@@ -47,6 +47,19 @@ struct Registro {
     /// falló acusando al código de hacer cuatro llamadas en vez de dos, y el
     /// que estaba mal era el banco.
     puerto: u16,
+    /// Cuántas descargas hay abiertas EN ESTE INSTANTE, y cuántas llegó a haber.
+    ///
+    /// Es la única forma de mirar el semáforo desde fuera: contar permisos
+    /// dentro del proceso mediría la estructura, no el efecto. Aquí se cuenta lo
+    /// que de verdad pasa —peticiones simultáneas en el otro extremo del
+    /// cable—, que es lo que le cuesta memoria al servidor del cliente.
+    en_vuelo: usize,
+    max_en_vuelo: usize,
+    /// Los `COLGADO-n` que ya se pidieron una vez. La PRIMERA petición de cada
+    /// uno se queda colgada —para poder matar el binario a mitad de descarga— y
+    /// la segunda entrega el archivo, que es la que tiene que atender el barrido
+    /// de arranque.
+    colgados_ya_servidos: std::collections::HashSet<String>,
 }
 
 type Estado = Arc<Mutex<Registro>>;
@@ -73,7 +86,13 @@ async fn graph_falso() -> (String, Estado) {
     // propia dirección sin que haya nada global que dos pruebas compartan.
     let escucha = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let puerto = escucha.local_addr().unwrap().port();
-    let estado: Estado = Arc::new(Mutex::new(Registro { autorizaciones: Vec::new(), puerto }));
+    let estado: Estado = Arc::new(Mutex::new(Registro {
+        autorizaciones: Vec::new(),
+        puerto,
+        en_vuelo: 0,
+        max_en_vuelo: 0,
+        colgados_ya_servidos: std::collections::HashSet::new(),
+    }));
 
     async fn mensajes(Path(_c): Path<String>, _cuerpo: String) -> axum::Json<Value> {
         axum::Json(json!({ "messages": [{ "id": "wamid.acuse" }] }))
@@ -93,6 +112,20 @@ async fn graph_falso() -> (String, Estado) {
                 .unwrap_or("(sin cabecera)")
                 .to_string(),
         );
+        // Los `LENTO-n` no están en la lista: se generan. Hacen falta MUCHOS
+        // identificadores distintos para llenar la cola, y enumerarlos a mano
+        // sería una lista de doce entradas iguales.
+        if id.starts_with("LENTO-") || id.starts_with("COLGADO-") {
+            let puerto = e.lock().unwrap().puerto;
+            return axum::Json(json!({
+                "url": format!("http://127.0.0.1:{puerto}/descargas/{id}"),
+                "mime_type": "image/jpeg",
+                "file_size": 64,
+                "id": id,
+            }))
+            .into_response();
+        }
+
         let Some((_, bytes, mime)) = archivos().into_iter().find(|(k, _, _)| *k == id) else {
             // Un identificador que Meta no conoce. Es el caso del archivo que
             // caducó, y tiene que acabar en «fallido» y no en una foto vacía.
@@ -122,6 +155,32 @@ async fn graph_falso() -> (String, Estado) {
                 .unwrap_or("(sin cabecera)")
                 .to_string(),
         );
+        // La PRIMERA petición de un `COLGADO-n` no contesta nunca: es lo que
+        // deja la fila en «pendiente» cuando el binario se muere encima. La
+        // segunda —la del barrido de arranque— sí entrega.
+        if id.starts_with("COLGADO-") {
+            let primera = e.lock().unwrap().colgados_ya_servidos.insert(id.clone());
+            if primera {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+            return ([("content-type", "image/jpeg")], vec![9u8; 128]).into_response();
+        }
+
+        // Un archivo que TARDA, para que las descargas puedan solaparse y se
+        // pueda mirar cuántas coinciden. Sin la espera todas terminan antes de
+        // que empiece la siguiente y el máximo sale 1 con semáforo y sin él —una
+        // prueba que no puede distinguir las dos cosas.
+        if id.starts_with("LENTO-") || id.starts_with("COLGADO-") {
+            {
+                let mut r = e.lock().unwrap();
+                r.en_vuelo += 1;
+                r.max_en_vuelo = r.max_en_vuelo.max(r.en_vuelo);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            e.lock().unwrap().en_vuelo -= 1;
+            return ([("content-type", "image/jpeg")], vec![7u8; 64]).into_response();
+        }
+
         match archivos().into_iter().find(|(k, _, _)| *k == id) {
             Some((_, bytes, mime)) => ([("content-type", mime)], bytes).into_response(),
             None => (axum::http::StatusCode::NOT_FOUND, "no such media").into_response(),
@@ -483,4 +542,160 @@ async fn una_foto_si_se_enseña_dentro_del_panel() {
     let r = nav.get(format!("{}/api/medios/1", instancia.base)).send().await.unwrap();
     let disposicion = r.headers().get("content-disposition").unwrap().to_str().unwrap();
     assert!(disposicion.starts_with("inline"), "la foto no se enseña: {disposicion}");
+}
+
+#[tokio::test]
+async fn una_rafaga_de_fotos_no_arranca_todas_las_descargas_a_la_vez() {
+    // EL TECHO DE MEMORIA, MEDIDO DONDE OCURRE. `atender` arranca una tarea por
+    // archivo que llega, y cada descarga en vuelo puede sostener hasta
+    // `tope_medio` —16 MiB— en memoria. Sin nada que las cuente, doce fotos
+    // seguidas son doce descargas simultáneas, y el número que le cuesta al
+    // servidor del cliente es el PRODUCTO de las dos cosas, no el tope solo.
+    //
+    // Se cuenta en el Meta falso y no dentro del proceso a propósito: contar
+    // permisos mediría la estructura que acabo de escribir. Lo que importa es
+    // cuántas peticiones coinciden en el otro extremo del cable.
+    let (graph, estado) = graph_falso().await;
+    let instancia = instancia("a-la-vez", &graph).await;
+
+    const CUANTAS: usize = 12;
+    for n in 0..CUANTAS {
+        llega(
+            &instancia.base,
+            &format!("wamid.L{n}"),
+            "image",
+            json!({ "id": format!("LENTO-{n}"), "mime_type": "image/jpeg" }),
+        )
+        .await;
+    }
+
+    // Se espera a que las doce terminen, sondeando: dormir un rato fijo hace la
+    // prueba lenta y frágil a la vez.
+    let nav = entrar(&instancia.base).await;
+    let mut guardadas = 0;
+    for _ in 0..200 {
+        let h: Vec<Value> = nav
+            .get(format!("{}/api/conversaciones/1", instancia.base))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        guardadas = h
+            .iter()
+            .filter(|m| m["medio"]["estado"].as_str() == Some("guardado"))
+            .count();
+        if guardadas == CUANTAS {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(guardadas, CUANTAS, "no llegaron las doce fotos: el freno no puede PERDER archivos");
+
+    let max = estado.lock().unwrap().max_en_vuelo;
+
+    // La mitad que acota.
+    assert!(
+        max <= chasqui_api::servicio::DESCARGAS_A_LA_VEZ,
+        "hubo {max} descargas a la vez y el techo es {}: el producto por el tope de tamaño es lo \
+         que se lleva la memoria del servidor del cliente",
+        chasqui_api::servicio::DESCARGAS_A_LA_VEZ
+    );
+
+    // Y LA MITAD QUE IMPIDE SOBRECORREGIR (directiva 21). Con un techo de uno
+    // esta prueba pasaría igual, y doce fotos serían doce esperas seguidas: el
+    // freno estaría puesto contra el cliente legítimo. También es lo que hace
+    // que la prueba distinga «hay semáforo» de «el banco no llegó a solaparse».
+    assert!(
+        max > 1,
+        "no hubo NINGÚN solape: o el techo es de uno —y entonces está puesto contra quien manda \
+         fotos de verdad— o esta prueba no está midiendo lo que cree"
+    );
+}
+
+#[tokio::test]
+async fn un_archivo_a_medias_se_retoma_al_volver_a_arrancar() {
+    // EL FALLO QUE ESTA PRUEBA IMPIDE, en una frase: el cliente manda la foto de
+    // su comprobante, el servidor se reinicia mientras baja, y esa foto se queda
+    // «pendiente» PARA SIEMPRE — enseñándole a quien atiende un «espera, que ya
+    // baja» que nunca se cumple.
+    //
+    // `medio::pendientes` estaba escrita para esto desde el primer día y no la
+    // llamaba nadie: el comentario prometía un reintento que no existía
+    // (revisión del 2026-08-02). Aquí se comprueba cruzando la frontera de
+    // verdad — se mata el binario a mitad de descarga y se arranca otro sobre la
+    // MISMA base—, porque eso es exactamente lo que no se puede ver desde dentro
+    // del proceso.
+    let (graph, _estado) = graph_falso().await;
+    let mut instancia = instancia("a-medias", &graph).await;
+
+    llega(
+        &instancia.base,
+        "wamid.CORTADO",
+        "image",
+        json!({ "id": "COLGADO-1", "mime_type": "image/jpeg" }),
+    )
+    .await;
+
+    // Se le da tiempo a que la descarga esté EN VUELO —el Meta falso no va a
+    // contestar esa primera petición— y se mata el proceso encima.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    instancia.hijo.kill().unwrap();
+    instancia.hijo.wait().unwrap();
+
+    // Otro binario, la misma base. Es el reinicio de verdad.
+    let bd = format!("sqlite://{}/chasqui.db", instancia.dir.display());
+    let puerto = puerto_libre();
+    let base = format!("http://127.0.0.1:{puerto}");
+    let mut segundo = orden(&bd, &graph, puerto)
+        .arg("servir")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let cliente = reqwest::Client::new();
+    let mut vivo = false;
+    for _ in 0..100 {
+        if let Ok(r) = cliente.get(format!("{base}/salud")).send().await
+            && r.status().is_success()
+        {
+            vivo = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(vivo, "el segundo servidor no arrancó");
+
+    let nav = entrar(&base).await;
+    let mut estado_final = String::new();
+    for _ in 0..100 {
+        let h: Vec<Value> = nav
+            .get(format!("{base}/api/conversaciones/1"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        estado_final = h
+            .iter()
+            .find_map(|m| m["medio"]["estado"].as_str())
+            .unwrap_or_default()
+            .to_string();
+        if estado_final == "guardado" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let _ = segundo.kill();
+    let _ = segundo.wait();
+
+    assert_eq!(
+        estado_final, "guardado",
+        "el archivo se quedó en «{estado_final}» después de reiniciar: nadie retoma lo que quedó \
+         a medias, y quien atiende ve un «pendiente» que no avanza nunca"
+    );
 }

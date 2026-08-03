@@ -178,6 +178,15 @@ se vende, «una base por instancia», sigue siendo literal. El precio es el tope
 de tamaño (`Servicio::tope_medio`), y **lo que no cabe se anota diciendo que no
 cabe**, nunca se descarta callando.
 
+**El tope de tamaño tiene una segunda mitad: `DESCARGAS_A_LA_VEZ`** (4). Como
+`atender` arranca una tarea por archivo que llega, lo que le cuesta a la memoria
+del servidor es el PRODUCTO de los dos —4 × 16 MiB = 64 MiB—, no el tope solo. El
+techo lo fija un `const _: () = assert!(…)` que **falla al compilar**, y eso nace
+de un fallo de la prueba que lo vigilaba: `frontera_medios` leía la constante en
+los dos lados del `assert`, así que subirla a 1000 dejaba la prueba en verde con
+un techo de 16 GiB. Una prueba que se mide contra su propio parámetro no mide
+nada.
+
 **Las coordenadas se traducen a «municipio, departamento, país» DENTRO del
 binario** (`chasqui-dominio/src/geo.rs`), con una tabla de GeoNames `cities5000`
 empotrada (1,7 MB, 69 561 ciudades). Nunca se le pregunta a un servicio de mapas:
@@ -193,7 +202,14 @@ Dos cosas del camino que no se ven leyendo:
 
 - **La descarga NO va en el camino del webhook.** Meta reintenta si no recibe el
   200 en segundos; bajar allí un vídeo haría que el mismo mensaje se atendiera
-  dos y tres veces. La fila nace `pendiente` y otra tarea la completa.
+  dos y tres veces. La fila nace `pendiente` y otra tarea la completa. **Y al
+  arrancar, `atender::reintentar_pendientes` retoma lo que quedó a medias**: sin
+  eso, un reinicio a mitad de descarga dejaba la fila en `pendiente` para
+  siempre. Vale para los tres canales y no hace caso especial por canal: en
+  WhatsApp el billete se vuelve a resolver y el archivo se recupera; en Instagram
+  y Messenger la URL ya caducó y el reintento falla — que es justo lo que se
+  busca, porque cambia un `pendiente` que miente por un `fallido` que dice qué
+  pasó. Lo fija `frontera_medios`, matando el binario a mitad de descarga.
 - **`GET /api/medios/{id}` sirve un archivo que eligió un desconocido**, tipo
   incluido. Solo va `inline` lo que es imagen, audio o vídeo; lo demás se
   descarga, y todo lleva `Content-Security-Policy: sandbox`. Sin eso, un cliente

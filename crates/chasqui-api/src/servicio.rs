@@ -54,6 +54,12 @@ pub struct Servicio {
     /// anotado como «demasiado grande», con su tamaño, para que quien atiende
     /// pueda pedirlo por otra vía en vez de no enterarse (directiva 20).
     pub tope_medio: usize,
+    /// Cuántos archivos se están bajando **a la vez**.
+    ///
+    /// Ver [`DESCARGAS_A_LA_VEZ`]. Va aquí y no en el adaptador porque el techo
+    /// es de la instalación entera: los tres canales de Meta comparten el
+    /// servidor del cliente, y tres semáforos de cuatro son un techo de doce.
+    pub permisos_medios: Arc<tokio::sync::Semaphore>,
 }
 
 /// El cliente HTTP para las consultas al sistema del cliente.
@@ -74,6 +80,45 @@ fn cliente_de_consultas() -> reqwest::Client {
 /// documentos pueden llegar a más y esos sí se quedan fuera, dichos y no
 /// callados.
 const TOPE_MEDIO: usize = 16 * 1024 * 1024;
+
+/// Cuántos archivos se bajan A LA VEZ. **Es la otra mitad del tope de tamaño.**
+///
+/// `TOPE_MEDIO` acota lo que puede pesar UNA descarga; sin este número no hay
+/// nada que acote cuántas hay en vuelo, y el producto de los dos es lo que de
+/// verdad le cuesta a la memoria del servidor del cliente. `atender` arranca una
+/// tarea por archivo que llega, así que una ráfaga —un cliente mandando diez
+/// fotos seguidas, o Meta reintentando un lote entero después de un corte— las
+/// arrancaba todas a la vez. Con cuatro, el techo es 4 × 16 MiB = **64 MiB**, un
+/// número que cabe en el VPS más pequeño en el que se instalaría esto.
+///
+/// **Cuatro y no uno.** De uno en uno, diez fotos son diez esperas seguidas y el
+/// historial se le llena a cuentagotas a quien atiende; el freno estaría puesto
+/// contra el cliente legítimo, que es el error de la directiva 21. Cuatro deja
+/// pasar la ráfaga normal —lo que manda una persona en una conversación— y solo
+/// hace cola cuando lo que llega ya no es normal.
+///
+/// **Lo que espera turno no cuesta memoria**: el permiso se pide justo antes de
+/// bajar, no antes de arrancar la tarea. Una tarea en cola son unos bytes; una
+/// bajando son hasta dieciséis megas.
+pub const DESCARGAS_A_LA_VEZ: usize = 4;
+
+/// El techo de memoria de los medios, **fijado donde no se puede pasar por alto**.
+///
+/// Nace de un fallo de la prueba que lo vigilaba: `frontera_medios` comprueba que
+/// las descargas simultáneas no pasen de `DESCARGAS_A_LA_VEZ`, y como lee la
+/// constante en los dos lados del `assert`, subirla a 1000 hacía que la prueba
+/// **siguiera en verde** con un techo de 16 GiB. Medía que el semáforo respeta su
+/// propio número, no que el número sea razonable.
+///
+/// Esto mide lo otro: el producto de los dos topes, que es lo que de verdad puede
+/// costar la memoria del servidor del cliente. Y falla al COMPILAR, no en una
+/// prueba que alguien puede no correr.
+const _: () = assert!(
+    DESCARGAS_A_LA_VEZ * TOPE_MEDIO <= 64 * 1024 * 1024,
+    "las descargas simultáneas por el tope de tamaño pasan de 64 MiB: eso es lo que los medios \
+     le pueden costar a la memoria del servidor del cliente, y no cabe en el VPS más pequeño en \
+     el que se instalaría esto. Baje DESCARGAS_A_LA_VEZ o baje TOPE_MEDIO."
+);
 
 impl Servicio {
     pub fn nuevo(config: &Config, pool: SqlitePool) -> Servicio {
@@ -117,6 +162,7 @@ impl Servicio {
             horas_ventana_web: 24 * 7,
             freno_web: crate::web::Freno::default(),
             tope_medio: TOPE_MEDIO,
+            permisos_medios: Arc::new(tokio::sync::Semaphore::new(DESCARGAS_A_LA_VEZ)),
         }
     }
 

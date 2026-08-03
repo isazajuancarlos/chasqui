@@ -425,6 +425,90 @@ async fn encolar_medio(
     Ok(())
 }
 
+/// Retoma los archivos que se quedaron a medias, una vez, al arrancar.
+///
+/// # Por qué hace falta, y por qué vale para los TRES canales
+///
+/// Una fila nace `pendiente` y otra tarea la completa. Si el proceso se cae —o
+/// lo reinicia quien administra— entre esas dos cosas, la fila se queda
+/// `pendiente` **para siempre**: nada volvía a mirarla. `medio::pendientes`
+/// estaba escrita para esto desde el primer día y no la llamaba nadie, o sea que
+/// la promesa del comentario era falsa (revisión del 2026-08-02).
+///
+/// Lo interesante es que **no hace falta un caso especial por canal**, aunque
+/// parezca que sí:
+///
+/// - En WhatsApp el billete es el identificador de Meta y se vuelve a resolver
+///   contra Graph, así que el archivo se recupera de verdad.
+/// - En Instagram y Messenger el billete es la URL del adjunto y **ya caducó**,
+///   así que el reintento falla casi siempre. Y eso es exactamente lo que se
+///   busca: la fila pasa de `pendiente` —que le dice a quien atiende «espera,
+///   que ya baja», y es mentira— a `fallido` con su motivo, que le dice «pídale
+///   que lo mande otra vez». Cambiar una mentira por un dato cierto es la
+///   ganancia, no el efecto secundario.
+///
+/// Dos cosas más, dichas y no calladas:
+///
+/// - **El tope se registra si corta.** Un barrido que se para en 100 y no lo
+///   dice se lee como «no quedaba nada» (directiva 20).
+/// - Corre en paralelo con el servidor, así que puede coincidir con la descarga
+///   de un archivo que acabe de entrar. La coincidencia es inofensiva: las dos
+///   tareas escriben la misma fila con los mismos bytes, y `guardar` no depende
+///   del estado anterior. Un mecanismo para impedirla sería un mecanismo para
+///   contener otro (directiva 1).
+pub async fn reintentar_pendientes(servicio: &Servicio, tope: i64) {
+    let pendientes = match bd_medio::pendientes(&servicio.pool, tope).await {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("chasqui: no se pudo mirar qué archivos quedaron a medias: {e}");
+            return;
+        }
+    };
+    if pendientes.is_empty() {
+        return;
+    }
+    if pendientes.len() as i64 == tope {
+        eprintln!(
+            "chasqui: AVISO — había al menos {tope} archivos a medias y se reintentan {tope} en              esta pasada; los demás siguen «pendiente» hasta el próximo arranque."
+        );
+    }
+    println!("chasqui: reintentando {} archivo(s) que quedaron a medias", pendientes.len());
+
+    for (medio_id, billete, cuenta_id) in pendientes {
+        let cuenta = match chasqui_datos::cuenta::por_id(&servicio.pool, &servicio.boveda, cuenta_id)
+            .await
+        {
+            Ok(Some(c)) => c,
+            // La cuenta se dio de baja o la frase ya no descifra su token. No se
+            // deja la fila mintiendo: se dice qué pasa y por qué.
+            otro => {
+                let porque = match otro {
+                    Ok(None) => "la cuenta de canal ya no existe".to_string(),
+                    Err(e) => format!("no se pudo leer la cuenta de canal: {e}"),
+                    Ok(Some(_)) => unreachable!(),
+                };
+                eprintln!("chasqui: no se puede reintentar el medio {medio_id}: {porque}");
+                if let Err(e) = bd_medio::marcar(
+                    &servicio.pool,
+                    medio_id,
+                    bd_medio::Estado::Fallido,
+                    &porque,
+                    None,
+                )
+                .await
+                {
+                    eprintln!("chasqui: no se pudo anotar el fallo del medio {medio_id}: {e}");
+                }
+                continue;
+            }
+        };
+        // Por el MISMO camino que la descarga normal: el semáforo, el tope de
+        // tamaño y el anotado del fallo salen de ahí. Un barrido con su propia
+        // copia del camino es un barrido que se queda atrás.
+        descargar_medio(servicio, cuenta.canal, &cuenta.token, medio_id, &billete).await;
+    }
+}
+
 /// Trae el archivo y lo guarda. **Nunca borra la fila**: si falla, deja dicho
 /// por qué.
 ///
@@ -439,6 +523,34 @@ async fn descargar_medio(
     billete: &str,
 ) {
     let pool = &servicio.pool;
+
+    // EL PERMISO SE PIDE AQUÍ, dentro de la tarea y pegado a la descarga, no
+    // antes de arrancarla. Lo que hay que acotar es cuántas descargas están EN
+    // VUELO —cada una con hasta `tope_medio` de bytes en memoria—, no cuántas
+    // esperan turno, que son unos bytes cada una. Ver `DESCARGAS_A_LA_VEZ`.
+    let permiso = servicio.permisos_medios.clone().acquire_owned().await;
+    let _permiso = match permiso {
+        Ok(p) => p,
+        // Solo si alguien cerrara el semáforo, y no se cierra en ninguna parte.
+        // Aun así NO se sale callando: sin esto la fila se quedaría «pendiente»
+        // para siempre y nadie sabría por qué (directiva 20).
+        Err(e) => {
+            eprintln!("chasqui: no se pudo pedir turno para bajar el medio {medio_id}: {e}");
+            if let Err(e) = bd_medio::marcar(
+                pool,
+                medio_id,
+                bd_medio::Estado::Fallido,
+                "no se pudo pedir turno para la descarga",
+                None,
+            )
+            .await
+            {
+                eprintln!("chasqui: no se pudo anotar el fallo del medio {medio_id}: {e}");
+            }
+            return;
+        }
+    };
+
     let resultado =
         servicio.canal(canal).descargar_medio(token, billete, servicio.tope_medio).await;
 
