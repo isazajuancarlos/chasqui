@@ -27,6 +27,27 @@ pub struct Cuenta {
     pub token: String,
 }
 
+/// `Debug` **a mano y tachando el token**, igual que `Config`.
+///
+/// Hasta la revisión del 2026-08-02 esta estructura simplemente no derivaba
+/// `Debug`, así que un `{:?}` no compilaba y el token no se filtraba **por
+/// accidente**. Es una protección que se pierde el día que alguien añade el
+/// derive para depurar algo — y lo que llega al log es la credencial con la que
+/// se escribe a los clientes del cliente desde su propio número.
+///
+/// Escrito así, `{:?}` compila, es útil, y dice `<oculto>` a propósito.
+impl std::fmt::Debug for Cuenta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cuenta")
+            .field("id", &self.id)
+            .field("canal", &self.canal)
+            .field("id_externo", &self.id_externo)
+            .field("nombre", &self.nombre)
+            .field("token", &"<oculto>")
+            .finish()
+    }
+}
+
 /// Da de alta una cuenta (o actualiza su token si ya existía).
 ///
 /// Actualizar en vez de duplicar es lo correcto aquí: el cliente rota el token de
@@ -247,5 +268,46 @@ mod pruebas {
         let otra = Boveda::nueva("la frase que pondría quien restaura un respaldo a medias");
         let r = por_id_externo(&pool, &otra, Canal::WhatsApp, "PNID1").await;
         assert!(matches!(r, Err(Error::Descifrado(_))));
+    }
+}
+
+#[cfg(test)]
+mod pruebas_de_fuga {
+    use super::*;
+
+    /// El caso rojo de la protección accidental: si alguien cambia el `Debug`
+    /// escrito a mano por un `#[derive(Debug)]`, esto se pone rojo. Sin esta
+    /// prueba, el cambio se ve como una simplificación bienvenida.
+    #[test]
+    fn el_token_no_aparece_al_imprimir_la_cuenta() {
+        let c = Cuenta {
+            id: 1,
+            canal: Canal::WhatsApp,
+            id_externo: "PNID-1".into(),
+            nombre: "ACME".into(),
+            token: "EAAG-el-token-permanente-del-cliente".into(),
+        };
+        let impreso = format!("{c:?}");
+        assert!(
+            !impreso.contains("EAAG"),
+            "el token del cliente sale al imprimir la cuenta, y de ahí al log: {impreso}"
+        );
+        // Y sigue sirviendo para depurar: lo que NO es secreto tiene que estar.
+        assert!(impreso.contains("PNID-1"), "sin el id externo el Debug no vale para nada");
+    }
+
+    #[test]
+    fn la_clave_del_modelo_tampoco_aparece() {
+        let m = crate::documento::Modelo {
+            url: "https://api.ejemplo.com/v1".into(),
+            nombre: "gpt-4o-mini".into(),
+            clave: Some("sk-la-clave-que-paga-el-cliente".into()),
+        };
+        let impreso = format!("{m:?}");
+        assert!(!impreso.contains("sk-la-clave"), "la clave del modelo sale al log: {impreso}");
+        assert!(impreso.contains("gpt-4o-mini"), "sin el nombre del modelo el Debug no vale");
+        // Y se distingue «no hay clave» de «hay una y no la enseño».
+        let sin = crate::documento::Modelo { clave: None, ..m };
+        assert!(format!("{sin:?}").contains("None"), "no se distingue si hay clave o no");
     }
 }

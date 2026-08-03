@@ -55,11 +55,39 @@ pub async fn cambiar_clave(pool: &SqlitePool, id: i64, clave: &str) -> Resultado
     Ok(())
 }
 
+/// El hash contra el que se comprueba cuando el correo NO existe.
+///
+/// Se calcula una vez, con el MISMO `hashear` que produce los de verdad. No se
+/// escribe a mano en una constante a propósito: si `guaca` cambiara los
+/// parámetros de Argon2, un hash empotrado se seguiría verificando con los
+/// viejos —más baratos— y la diferencia de tiempo volvería sin que nada lo
+/// dijera. Derivarlo los mantiene atados.
+fn senuelo() -> &'static str {
+    static SENUELO: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SENUELO.get_or_init(|| {
+        guaca::claves::hashear("una contraseña que no es la de nadie, solo para gastar el tiempo")
+            .expect("hashear una constante no falla")
+    })
+}
+
 /// Comprueba correo y contraseña. `None` si no casan.
 ///
 /// **No distingue «no existe» de «contraseña mal»**, y no es pereza: decirlo
 /// convierte la pantalla de entrada en un comprobador de qué correos tienen
 /// cuenta en el negocio del cliente.
+///
+/// # Y no lo distingue TAMPOCO por el tiempo
+///
+/// Esa frase era cierta en el mensaje y falsa en el reloj. Medido el 2026-08-02
+/// con la revisión del MVP: un correo que existe tardaba **426 ms** —lo que
+/// cuesta Argon2— y uno que no existe **0,33 ms**, porque salía antes de
+/// comprobar nada. **1292 veces más rápido**, o sea que la pantalla de entrada
+/// sí era un comprobador de correos: no por lo que respondía, por lo que
+/// tardaba en responderlo.
+///
+/// Así que cuando no hay fila se verifica igual, contra [`senuelo`]. El trabajo
+/// se gasta a propósito, y `black_box` está para que el optimizador no se lleve
+/// por delante una llamada cuyo resultado no se mira.
 pub async fn autenticar(pool: &SqlitePool, correo: &str, clave: &str) -> Resultado<Option<Usuario>> {
     let fila = sqlx::query(
         "SELECT id, correo, nombre, hash FROM usuario WHERE lower(correo) = ?1 AND activo = 1",
@@ -68,7 +96,10 @@ pub async fn autenticar(pool: &SqlitePool, correo: &str, clave: &str) -> Resulta
     .fetch_optional(pool)
     .await?;
 
-    let Some(fila) = fila else { return Ok(None) };
+    let Some(fila) = fila else {
+        std::hint::black_box(guaca::claves::verificar(clave, senuelo()));
+        return Ok(None);
+    };
     let hash: String = fila.try_get("hash")?;
 
     if !guaca::claves::verificar(clave, &hash) {
@@ -282,5 +313,52 @@ mod pruebas {
             .await
             .unwrap();
         assert_eq!(cuantos, 1, "la tabla crece sin límite");
+    }
+}
+
+#[cfg(test)]
+mod pruebas_de_tiempo {
+    use super::*;
+    use crate::pruebas::base_de_prueba;
+
+    /// **El reloj también responde.** Sin el señuelo de [`autenticar`], un correo
+    /// que no existe salía sin pagar Argon2: medido el 2026-08-02, 426 ms contra
+    /// 0,33 ms — **1292 veces más rápido**. Con eso, la pantalla de entrada es un
+    /// comprobador de qué correos tienen cuenta en el negocio del cliente, por
+    /// mucho que las dos respuestas digan lo mismo.
+    ///
+    /// El umbral es flojo —un tercio— a propósito: lo que hay que cazar es el
+    /// regreso al camino rápido, que son tres órdenes de magnitud, no una
+    /// diferencia del 20 % que en una máquina cargada es ruido. Una prueba de
+    /// tiempo apretada es una prueba que falla sola y que se acaba borrando.
+    #[tokio::test]
+    async fn un_correo_que_no_existe_tarda_LO_MISMO_que_uno_que_si() {
+        let pool = base_de_prueba().await;
+        crear(&pool, "ana@acme.com", "Ana", "una-contraseña-larga", Utc::now()).await.unwrap();
+
+        // Se calienta el señuelo: la primera llamada paga además su OnceLock, y
+        // medir eso sería medir el arranque, no el camino.
+        autenticar(&pool, "nadie@acme.com", "x").await.unwrap();
+
+        const VUELTAS: u32 = 4;
+        let mut existe = std::time::Duration::ZERO;
+        let mut no_existe = std::time::Duration::ZERO;
+        for _ in 0..VUELTAS {
+            let t = std::time::Instant::now();
+            autenticar(&pool, "ana@acme.com", "la-que-no-es").await.unwrap();
+            existe += t.elapsed();
+
+            let t = std::time::Instant::now();
+            autenticar(&pool, "nadie@acme.com", "la-que-no-es").await.unwrap();
+            no_existe += t.elapsed();
+        }
+
+        assert!(
+            no_existe * 3 >= existe,
+            "el correo que no existe tardó {:?} y el que sí {:?}: por ahí se enumera quién tiene \
+             cuenta, sin que las respuestas se distingan en nada más",
+            no_existe / VUELTAS,
+            existe / VUELTAS
+        );
     }
 }

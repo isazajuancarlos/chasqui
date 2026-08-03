@@ -42,6 +42,22 @@ pub enum ErrorModelo {
 
     #[error("el modelo devolvió una respuesta vacía")]
     Vacia,
+
+    #[error(
+        "la respuesta del modelo pasa de {0} bytes y no se lee entera. Un modelo que se embala          no puede llevarse la memoria del servidor por delante."
+    )]
+    Grande(usize),
+}
+
+impl From<crate::consultas::Corte> for ErrorModelo {
+    fn from(c: crate::consultas::Corte) -> ErrorModelo {
+        use crate::consultas::Corte;
+        match c {
+            Corte::Red(e) => ErrorModelo::Red(e),
+            Corte::Grande(n) => ErrorModelo::Grande(n),
+            Corte::NoEsTexto => ErrorModelo::Forma,
+        }
+    }
 }
 
 /// Le pide al modelo que redacte la respuesta con los fragmentos del cliente.
@@ -77,7 +93,12 @@ pub async fn redactar(
     let respuesta =
         peticion_http.send().await.map_err(|e| ErrorModelo::Red(e.to_string()))?;
     let estado = respuesta.status();
-    let texto = respuesta.text().await.unwrap_or_default();
+    // ACOTADO, con el mismo tope que las consultas al sistema del cliente. La
+    // cabecera de este módulo ya decía «las cotas son las mismas»; hasta la
+    // revisión del 2026-08-02 aquí había un `text()`, que lee el cuerpo ENTERO
+    // en memoria. `max_tokens` acota lo que un modelo que se porta bien
+    // devuelve, no lo que puede llegar por ese socket.
+    let texto = crate::consultas::leer_acotado(respuesta).await?;
 
     if !estado.is_success() {
         return Err(ErrorModelo::Rechazado { estado: estado.as_u16(), cuerpo: texto });

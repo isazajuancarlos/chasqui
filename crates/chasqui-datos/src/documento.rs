@@ -83,6 +83,19 @@ pub struct Modelo {
     pub clave: Option<String>,
 }
 
+/// `Debug` que tacha la clave. Ver el de `cuenta::Cuenta`: la protección de «no
+/// deriva Debug» dura hasta que alguien añade el derive, y aquí lo que se
+/// escaparía al log es la clave del modelo del cliente, que él paga.
+impl std::fmt::Debug for Modelo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Modelo")
+            .field("url", &self.url)
+            .field("nombre", &self.nombre)
+            .field("clave", &self.clave.as_ref().map(|_| "<oculta>"))
+            .finish()
+    }
+}
+
 /// Configura el modelo. La clave se cifra.
 pub async fn guardar_modelo(
     pool: &SqlitePool,

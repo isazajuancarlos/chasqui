@@ -434,4 +434,98 @@ mod pruebas {
 
         assert_eq!(cuantos_medios(&pool).await, 1, "se llevó la foto de quien no pidió nada");
     }
+
+    /// Crea un pedido armado por un flujo, con los datos que el flujo recogió.
+    async fn con_pedido(pool: &SqlitePool, cta: i64, contacto: &str) -> i64 {
+        let conv = abrir_o_continuar(pool, cta, contacto, t0(), 24).await.unwrap().id;
+        // El título va por contacto: `flujo_titulo` es un índice ÚNICO, y dos
+        // llamadas con el mismo título revientan el arnés, no el código.
+        let flujo = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO flujo (titulo, disparadores, confirmacion, activo, creado_en) \
+             VALUES (?2, 'pedido', 'Listo', 1, ?1) RETURNING id",
+        )
+        .bind(t0().to_rfc3339())
+        .bind(format!("Toma de pedido {contacto}"))
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        crate::pedido::registrar(
+            pool,
+            flujo,
+            "Toma de pedido",
+            conv,
+            contacto,
+            &[
+                ("direccion".to_string(), "Cra 50 #10-20, Amagá".to_string()),
+                ("correo".to_string(), "quien.sea@ejemplo.com".to_string()),
+            ],
+            t0(),
+        )
+        .await
+        .unwrap();
+        conv
+    }
+
+    async fn cuantos_pedidos(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM pedido").fetch_one(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn olvidar_se_lleva_TAMBIEN_el_PEDIDO_con_su_direccion_y_su_correo() {
+        // EL BORRADO ES EL QUE SE OLVIDA. `olvidar` nombra a mano `escalado`,
+        // `mensaje` y `conversacion`; de `pedido` no dice ni una palabra, y sin
+        // embargo es la tabla con los datos MÁS personales de todas — la
+        // dirección a la que llevar el pedido y el correo de quien lo hizo.
+        //
+        // Hoy se va por el CASCADE que declara la migración 0006, o sea que la
+        // supresión de la Ley 1581 —la promesa más fuerte del producto— se apoya
+        // en un atributo del esquema que no comprobaba nadie. Una migración
+        // futura que recree la tabla sin el CASCADE dejaría los pedidos vivos, y
+        // el síntoma sería que no hay síntoma: las conversaciones sí
+        // desaparecen, y la constancia de supresión saldría igual de conforme.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        con_pedido(&pool, cta, "573001").await;
+        assert_eq!(cuantos_pedidos(&pool).await, 1);
+
+        olvidar(&pool, "573001", t0()).await.unwrap();
+
+        assert_eq!(
+            cuantos_pedidos(&pool).await,
+            0,
+            "el pedido sobrevivió a la supresión: quedan en la base la dirección y el correo de \
+             quien pidió que lo borraran"
+        );
+    }
+
+    #[tokio::test]
+    async fn purgar_por_plazo_se_lleva_TAMBIEN_los_pedidos() {
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        let conv = con_pedido(&pool, cta, "573002").await;
+        sqlx::query("UPDATE conversacion SET ultimo_en = ?1, abierta_en = ?1 WHERE id = ?2")
+            .bind((t0() - Duration::days(200)).to_rfc3339())
+            .bind(conv)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        purgar(&pool, chasqui_dominio::retencion::corte(t0(), 90), t0()).await.unwrap();
+
+        assert_eq!(cuantos_pedidos(&pool).await, 0, "el pedido sobrevivió al plazo de retención");
+    }
+
+    #[tokio::test]
+    async fn olvidar_a_uno_no_se_lleva_el_pedido_de_otro() {
+        // Directiva 22: la limpieza se acota a lo que se va a regenerar. Un
+        // CASCADE de más se ve en la SEGUNDA vuelta, no en la primera.
+        let pool = base_de_prueba().await;
+        let cta = cuenta_de_prueba(&pool).await;
+        con_pedido(&pool, cta, "573001").await;
+        con_pedido(&pool, cta, "573002").await;
+
+        olvidar(&pool, "573001", t0()).await.unwrap();
+
+        assert_eq!(cuantos_pedidos(&pool).await, 1, "se llevó el pedido de quien no pidió nada");
+    }
 }

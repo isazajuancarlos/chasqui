@@ -26,7 +26,12 @@ const ESPERA: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Cuánto se lee como máximo de la respuesta. 256 KiB es enorme para una ficha
 /// de pedido y ridículo para tumbar un servidor.
-const LIMITE_RESPUESTA: usize = 256 * 1024;
+///
+/// `pub(crate)` porque **el modelo tiene el mismo problema y merece el mismo
+/// tope**: su módulo decía tener «las mismas cotas que las consultas» y leía la
+/// respuesta entera. Dos topes con dos números es cómo uno de los dos se queda
+/// atrás sin que nadie lo note.
+pub(crate) const LIMITE_RESPUESTA: usize = 256 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ErrorConsulta {
@@ -207,18 +212,40 @@ pub async fn ejecutar(
     Ok(rellenar(&consulta.plantilla_respuesta, &json)?)
 }
 
+/// Por qué se cortó una lectura. Lo traduce cada llamante a SU error: el mismo
+/// corte no se le cuenta igual a quien configuró una consulta que a quien apuntó
+/// mal la URL del modelo.
+pub(crate) enum Corte {
+    Red(String),
+    Grande(usize),
+    NoEsTexto,
+}
+
 /// Lee la respuesta hasta el límite. Más allá, se para.
-async fn leer_acotado(mut respuesta: reqwest::Response) -> Result<String, ErrorConsulta> {
+///
+/// **Se lee por trozos y no con `text()`**: `text()` reserva el cuerpo entero y
+/// solo después se puede mirar cuánto pesaba, así que negarse ahí evita usarlo,
+/// no reservarlo. Un tiempo de espera acota los segundos; esto acota los bytes,
+/// que no es lo mismo.
+pub(crate) async fn leer_acotado(mut respuesta: reqwest::Response) -> Result<String, Corte> {
     let mut bytes: Vec<u8> = Vec::new();
-    while let Some(trozo) =
-        respuesta.chunk().await.map_err(|e| ErrorConsulta::Red(e.to_string()))?
-    {
+    while let Some(trozo) = respuesta.chunk().await.map_err(|e| Corte::Red(e.to_string()))? {
         if bytes.len() + trozo.len() > LIMITE_RESPUESTA {
-            return Err(ErrorConsulta::Grande(LIMITE_RESPUESTA));
+            return Err(Corte::Grande(LIMITE_RESPUESTA));
         }
         bytes.extend_from_slice(&trozo);
     }
-    String::from_utf8(bytes).map_err(|_| ErrorConsulta::NoEsJson)
+    String::from_utf8(bytes).map_err(|_| Corte::NoEsTexto)
+}
+
+impl From<Corte> for ErrorConsulta {
+    fn from(c: Corte) -> ErrorConsulta {
+        match c {
+            Corte::Red(e) => ErrorConsulta::Red(e),
+            Corte::Grande(n) => ErrorConsulta::Grande(n),
+            Corte::NoEsTexto => ErrorConsulta::NoEsJson,
+        }
+    }
 }
 
 #[cfg(test)]
