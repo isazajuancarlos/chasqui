@@ -29,6 +29,11 @@
   let visitante = null;
   let ultimo = 0;
   let sondeando = false;
+  // Lo último que pintó el lado del equipo. Sirve para NO repintar cuando no ha
+  // cambiado nada: el sondeo va cada dos segundos, y repintar rehace el cuadro
+  // de responder — con lo que el agente estaba escribiendo dentro. Se descubrió
+  // usándolo: se teclea una respuesta y desaparece antes de poder enviarla.
+  let ultimoPanel = '';
 
   const cabeceras = (json) => {
     const h = { 'x-chasqui-sitio': SITIO };
@@ -96,10 +101,17 @@
     if (!visitante) return;
     const r = await fetch('/web/demo/panel', { headers: cabeceras() });
     if (!r.ok) return;
-    pintarPanel(await r.json());
+    const texto = await r.text();
+    if (texto === ultimoPanel) return;   // nada cambió: no se toca la pantalla
+    ultimoPanel = texto;
+    pintarPanel(JSON.parse(texto));
   }
 
   function pintarPanel(p) {
+    // Y aun cuando SÍ hay que repintar —llegó un mensaje mientras el agente
+    // escribía—, lo tecleado se conserva. Perder texto escrito por culpa de una
+    // actualización es de las cosas que hacen desconfiar de una herramienta.
+    const enCurso = document.getElementById('respuesta')?.value ?? '';
     panel.replaceChildren();
 
     // La clase del estado se elige de una lista CONOCIDA. Si el servidor
@@ -150,8 +162,10 @@
       const campo = document.createElement('input');
       campo.type = 'text';
       campo.placeholder = 'Su respuesta…';
+      campo.id = 'respuesta';
       campo.maxLength = 500;
       campo.style.flex = '1';
+      campo.value = enCurso;
       const enviarB = el('button', null, 'Enviar');
       enviarB.type = 'submit';
       const devolver = el('button', 'tenue', 'Devolver al bot');
