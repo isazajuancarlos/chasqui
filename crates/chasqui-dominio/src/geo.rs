@@ -89,7 +89,7 @@ fn leer() -> &'static Option<Tabla> {
         }
 
         let mut i = fin_ciudades;
-        let mut leer_tabla = |i: &mut usize| -> Option<Vec<(u32, u8)>> {
+        let leer_tabla = |i: &mut usize| -> Option<Vec<(u32, u8)>> {
             if BRUTO.len() < *i + 4 {
                 return None;
             }

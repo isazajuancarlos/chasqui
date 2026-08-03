@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas -->
+<!-- Copyright (c) 2026 Juan Carlos Isaza Arenas -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chasqui — pruébelo por los dos lados</title>
+<meta name="description" content="Escriba como cliente y véalo llegar al panel de atención. Chasqui, atención automatizada por WhatsApp, Instagram, Messenger y el chat de su web.">
+<style>
+  :root { --tinta:#1f2328; --suave:#5f6368; --linea:#e3e5e8; --fondo:#f6f7f9;
+          --acento:#0b57d0; --verde:#1e8e3e; --ambar:#b06000; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+         color:var(--tinta); background:var(--fondo); line-height:1.5; }
+  header { padding:2rem 1rem 1rem; text-align:center; }
+  header h1 { margin:0 0 .25rem; font-size:1.9rem; letter-spacing:-.02em; }
+  header p { margin:0 auto; max-width:46rem; color:var(--suave); }
+  .escenario { display:grid; grid-template-columns:1fr 1fr; gap:1rem;
+               max-width:64rem; margin:1.5rem auto 3rem; padding:0 1rem; align-items:start; }
+  @media (max-width:52rem) { .escenario { grid-template-columns:1fr; } }
+  .lado { background:#fff; border:1px solid var(--linea); border-radius:.75rem; overflow:hidden; }
+  .lado > h2 { margin:0; padding:.7rem 1rem; font-size:.8rem; text-transform:uppercase;
+               letter-spacing:.06em; color:var(--suave); border-bottom:1px solid var(--linea);
+               background:#fafbfc; }
+  .lado > h2 span { text-transform:none; letter-spacing:0; color:var(--tinta); font-weight:600; }
+
+  .hilo { height:26rem; overflow-y:auto; padding:1rem; display:flex; flex-direction:column; gap:.5rem; }
+  .b { max-width:85%; padding:.5rem .75rem; border-radius:.8rem; white-space:pre-wrap;
+       overflow-wrap:anywhere; font-size:.92rem; }
+  .b.suyo { background:var(--acento); color:#fff; align-self:flex-end; border-bottom-right-radius:.2rem; }
+  .b.bot  { background:#eef0f3; align-self:flex-start; border-bottom-left-radius:.2rem; }
+  .b .quien { display:block; font-size:.7rem; opacity:.75; margin-bottom:.15rem; }
+  form { display:flex; gap:.5rem; padding:.75rem; border-top:1px solid var(--linea); }
+  input[type=text] { flex:1; min-width:0; padding:.6rem .75rem; border:1px solid var(--linea);
+                     border-radius:.5rem; font:inherit; }
+  button { padding:.6rem 1rem; border:0; border-radius:.5rem; background:var(--acento); color:#fff;
+           font:inherit; font-weight:500; cursor:pointer; }
+  button.tenue { background:#fff; color:var(--acento); border:1px solid var(--linea); }
+  button:disabled { opacity:.5; cursor:default; }
+
+  .panel { padding:1rem; min-height:26rem; }
+  .estado { display:inline-block; font-size:.75rem; font-weight:600; padding:.15rem .55rem;
+            border-radius:1rem; }
+  .estado.bot { background:#e8f0fe; color:var(--acento); }
+  .estado.esperando_humano { background:#fef3e0; color:var(--ambar); }
+  .estado.con_humano { background:#e6f4ea; color:var(--verde); }
+  .tarjeta { border:1px solid var(--linea); border-radius:.6rem; padding:.85rem; margin:.85rem 0; }
+  .tarjeta.alerta { border-color:#f0c48a; background:#fffaf2; }
+  .tarjeta h3 { margin:0 0 .35rem; font-size:.95rem; }
+  .tarjeta p { margin:0 0 .5rem; font-size:.88rem; color:var(--suave); white-space:pre-wrap; }
+  .acciones { display:flex; gap:.5rem; flex-wrap:wrap; }
+  dl.campos { display:grid; grid-template-columns:auto 1fr; gap:.15rem .75rem; margin:0; font-size:.88rem; }
+  dl.campos dt { color:var(--suave); }
+  dl.campos dd { margin:0; overflow-wrap:anywhere; }
+  .pista { color:var(--suave); font-size:.85rem; margin:.5rem 0 0; }
+  .sugerencias { display:flex; gap:.4rem; flex-wrap:wrap; padding:0 .75rem .75rem; }
+  .sugerencias button { background:#fff; color:var(--acento); border:1px solid var(--linea);
+                        font-size:.82rem; padding:.35rem .7rem; }
+  footer { text-align:center; color:var(--suave); font-size:.85rem; padding:0 1rem 3rem; }
+  footer a { color:var(--acento); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chasqui, por los dos lados</h1>
+  <p>A la izquierda escribe <strong>el cliente de un negocio</strong>. A la derecha aparece lo que ve
+     <strong>el equipo de ese negocio</strong>. Es el mismo programa, en vivo: escriba y mírelo.</p>
+</header>
+
+<div class="escenario">
+  <section class="lado">
+    <h2>Lo que ve <span>su cliente</span></h2>
+    <div class="hilo" id="hilo"></div>
+    <div class="sugerencias" id="sugerencias"></div>
+    <form id="forma">
+      <input type="text" id="texto" placeholder="Escriba aquí…" autocomplete="off" maxlength="500">
+      <button type="submit">Enviar</button>
+    </form>
+  </section>
+
+  <section class="lado">
+    <h2>Lo que ve <span>su equipo</span></h2>
+    <div class="panel" id="panel"><p class="pista">Escriba algo a la izquierda para empezar.</p></div>
+  </section>
+</div>
+
+<footer>
+  <p>Solo ve <strong>su propia conversación</strong>: la de los demás visitantes no es accesible desde aquí.
+     Sus datos los trata Xiliux — <a href="https://xiliux.com/privacidad">política de privacidad</a>.</p>
+</footer>
+
+<script src="/demo.js"></script>
+</body>
+</html>

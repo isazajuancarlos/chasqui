@@ -119,6 +119,22 @@ cubren los tres canales — `whatsapp.rs` y `meta_mensajeria.rs` (Instagram y
 Messenger comparten forma). Los tres se montan siempre en `Servicio::nuevo`: que
 una cuenta exista es cosa de la base, no del servidor.
 
+**El modo demostración** (`chasqui-api/src/demo.rs`) enseña las dos mitades del
+producto en una pantalla: el chat del cliente a la izquierda, lo que ve el equipo
+a la derecha. Tres cosas que no son negociables y están fijadas con pruebas de
+frontera:
+
+- **Apagado no existe.** Sin el ajuste `demo.activa = si`, las seis rutas
+  devuelven 404. Un cliente que compre Chasqui no gana superficie por el hecho
+  de que nosotros tengamos una demostración.
+- **No hay panel, hay panel DE UNA conversación.** Autoriza el mismo
+  identificador opaco de 256 bits que el widget ya le dio al visitante. Enseñar
+  el panel entero sería enseñarle a un desconocido lo que otro visitante acaba
+  de escribir —a veces su correo, en el flujo de cotización—, y eso es una
+  brecha con el dueño de la demo como responsable.
+- **Publicar credenciales del panel y tener chat en vivo son incompatibles.** Se
+  puede una cosa o la otra en la misma instancia, nunca las dos.
+
 **El panel es el PRIMER consumidor de `/api`, no una pantalla con acceso
 privilegiado a la base** (`docs/INTEGRACION.md`, costura 4). Es lo que convierte
 «integrar el panel con la aplicación del cliente» en darle un token. Toda ruta de

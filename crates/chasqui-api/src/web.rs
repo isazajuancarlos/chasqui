@@ -104,7 +104,7 @@ impl Freno {
     }
 }
 
-fn error(codigo: StatusCode, mensaje: &str) -> Response {
+pub(crate) fn error(codigo: StatusCode, mensaje: &str) -> Response {
     (codigo, Json(serde_json::json!({ "error": mensaje }))).into_response()
 }
 
@@ -126,7 +126,7 @@ fn ip(cabeceras: &HeaderMap) -> String {
 /// **`Origin` manda cuando está.** Si se prefiriera la cabecera explícita, una
 /// página cualquiera podría mandarla y hacerse pasar por el sitio del cliente;
 /// `Origin` no lo puede escribir el JavaScript de la página.
-fn sitio_pedido(cabeceras: &HeaderMap) -> Option<String> {
+pub(crate) fn sitio_pedido(cabeceras: &HeaderMap) -> Option<String> {
     if let Some(origen) = cabeceras.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
         return Some(origen.to_string());
     }
@@ -137,7 +137,7 @@ fn sitio_pedido(cabeceras: &HeaderMap) -> Option<String> {
 }
 
 /// Comprueba que el sitio está dado de alta y devuelve su cuenta.
-async fn sitio(servicio: &Servicio, cabeceras: &HeaderMap) -> Result<cuenta::Cuenta, Response> {
+pub(crate) async fn sitio(servicio: &Servicio, cabeceras: &HeaderMap) -> Result<cuenta::Cuenta, Response> {
     let Some(pedido) = sitio_pedido(cabeceras) else {
         return Err(error(
             StatusCode::FORBIDDEN,
@@ -162,7 +162,7 @@ async fn sitio(servicio: &Servicio, cabeceras: &HeaderMap) -> Result<cuenta::Cue
 /// Se refleja el origen concreto y **nunca `*`**: con el comodín, cualquier
 /// página del mundo podría leer las respuestas, y por ahí se leen conversaciones
 /// ajenas si alguien consigue un identificador de visitante.
-fn cors(origen: &str) -> [(header::HeaderName, String); 4] {
+pub(crate) fn cors(origen: &str) -> [(header::HeaderName, String); 4] {
     [
         (header::ACCESS_CONTROL_ALLOW_ORIGIN, origen.to_string()),
         (header::ACCESS_CONTROL_ALLOW_HEADERS, format!("content-type, {CABECERA_VISITANTE}, {CABECERA_SITIO}")),

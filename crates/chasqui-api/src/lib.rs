@@ -15,6 +15,7 @@ pub mod atender;
 pub mod canales;
 pub mod config;
 pub mod consultas;
+pub mod demo;
 pub mod firma;
 pub mod modelo;
 pub mod panel;
@@ -189,6 +190,15 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/web/mensaje", post(web::mensaje).options(web::previa))
         .route("/web/mensajes", get(web::mensajes).options(web::previa))
         .route("/web/widget.js", get(web::widget))
+        // El modo demostración: las dos mitades del producto en una pantalla.
+        // TODAS estas rutas devuelven 404 salvo que el ajuste `demo.activa`
+        // valga «si», que en la instalación de un cliente no ocurre nunca.
+        .route("/demo", get(demo::pagina))
+        .route("/demo.js", get(demo::guion))
+        .route("/web/demo/panel", get(demo::panel).options(web::previa))
+        .route("/web/demo/atender", post(demo::atender).options(web::previa))
+        .route("/web/demo/responder", post(demo::responder).options(web::previa))
+        .route("/web/demo/devolver", post(demo::devolver).options(web::previa))
         // Para el monitor del despliegue. No dice nada de la configuración: un
         // «vivo» que enumere lo que falta es un mapa para quien lo lea.
         .route("/salud", get(|| async { "vivo" }))
