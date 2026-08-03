@@ -171,25 +171,19 @@ impl AdaptadorCanal for MetaMensajeria {
         url: &str,
         tope: usize,
     ) -> Result<Descarga, ErrorCanal> {
-        if !url.starts_with("http") {
+        // ESTA URL VIENE DENTRO DEL WEBHOOK. La firma dice quién mandó el
+        // cuerpo, no a dónde apunta lo que trae dentro: sin esta comprobación,
+        // `http://127.0.0.1:…` o `http://169.254.169.254/…` harían que el
+        // servidor del cliente se pidiera a sí mismo lo que hay en su red, y el
+        // resultado quedaría guardado como un medio que se abre desde el panel.
+        if let Err(porque) = super::url_de_descarga_admisible(url, &self.graph) {
             return Err(self.forma(format!(
-                "se esperaba la URL del adjunto y llegó {url:?}; en este canal el billete del \
-                 medio es la URL, no un identificador"
+                "la URL del adjunto no se puede pedir: {porque}. En este canal el billete del \
+                 medio es la URL, y tiene que ser la de la CDN de Meta"
             )));
         }
 
-        let respuesta = self.cliente.get(url).send().await?.error_for_status()?;
-        let mime = respuesta
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-
-        let bytes = respuesta.bytes().await?;
-        if bytes.len() > tope {
-            return Err(ErrorCanal::DemasiadoGrande { tamano: bytes.len() as u64, tope });
-        }
-        Ok(Descarga { bytes: bytes.to_vec(), mime })
+        super::bajar_con_tope(self.cliente.get(url), tope).await
     }
 
     fn entrantes(&self, cuerpo: &Value) -> Result<Vec<MensajeEntrante>, ErrorCanal> {

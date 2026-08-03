@@ -178,29 +178,22 @@ impl AdaptadorCanal for WhatsApp {
 
         // El tamaño que declara Meta se mira ANTES de bajar nada: negarse
         // después de haberse tragado 90 MB no evita el gasto, solo el guardado.
-        if let Some(tamano) = ficha.get("file_size").and_then(Value::as_u64) {
-            if tamano > tope as u64 {
-                return Err(ErrorCanal::DemasiadoGrande { tamano, tope });
-            }
+        if let Some(tamano) = ficha.get("file_size").and_then(Value::as_u64)
+            && tamano > tope as u64
+        {
+            return Err(ErrorCanal::DemasiadoGrande { tamano, tope });
         }
 
-        let respuesta =
-            self.cliente.get(url).bearer_auth(token).send().await?.error_for_status()?;
-
-        let mime = respuesta
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-
-        // Y otra vez al final, porque `file_size` puede no venir: el tope tiene
-        // que valer también cuando Meta no dice cuánto pesa.
-        let bytes = respuesta.bytes().await?;
-        if bytes.len() > tope {
-            return Err(ErrorCanal::DemasiadoGrande { tamano: bytes.len() as u64, tope });
+        // La URL la eligió la respuesta de Graph, no nosotros: se comprueba
+        // igual que la que llega por webhook en Instagram y Messenger. Es el
+        // token del cliente lo que se le adjunta a esta petición.
+        if let Err(porque) = super::url_de_descarga_admisible(url, &self.graph) {
+            return Err(forma(format!("la URL del medio {id} no se puede pedir: {porque}")));
         }
 
-        Ok(Descarga { bytes: bytes.to_vec(), mime })
+        // Y otra vez el tope, porque `file_size` puede no venir: tiene que valer
+        // también cuando Meta no dice cuánto pesa. Se corta MIENTRAS baja.
+        super::bajar_con_tope(self.cliente.get(url).bearer_auth(token), tope).await
     }
 
     fn entrantes(&self, cuerpo: &Value) -> Result<Vec<MensajeEntrante>, ErrorCanal> {

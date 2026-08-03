@@ -136,7 +136,33 @@ pub struct DemoJson {
 /// negocio filtre unas credenciales que nadie puso ahí.
 ///
 /// El formato del ajuste es `correo|clave|nota`, con la nota opcional.
+///
+/// # Publicar credenciales y tener chat en vivo son incompatibles, y aquí se
+/// impide
+///
+/// Con el chat de `demo.activa` encendido, quien entra a la demostración es una
+/// persona de verdad escribiendo cosas de verdad —a veces su correo, en el flujo
+/// de cotización—. Publicar además la contraseña del panel le daría a cualquier
+/// desconocido la conversación de todos los demás: no una demo floja, una brecha
+/// con el dueño de la demostración como responsable del tratamiento.
+///
+/// La regla estaba escrita en el `CLAUDE.md` y en ninguna parte más, o sea que la
+/// sostenía el que se acordara de ella. Ahora la sostiene esta función: si el
+/// chat está encendido, **no se publica nada**, se diga lo que se diga en
+/// `demo.credenciales` (directiva 6: hook que impide > directiva que recordar).
 pub async fn demo(State(servicio): State<Servicio>) -> Response {
+    if crate::demo::encendida(&servicio).await {
+        // Se dice en el log y no en la respuesta: quien administra tiene que
+        // enterarse de que puso dos ajustes que se excluyen, y quien visita no
+        // tiene por qué saber que existe el otro.
+        eprintln!(
+            "chasqui: «demo.credenciales» NO se publica porque «{}» está encendido: \
+             con chat en vivo hay conversaciones de personas reales detrás del panel. \
+             Elija una de las dos cosas.",
+            crate::demo::AJUSTE
+        );
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let valor = match ajuste::leer(&servicio.pool, "demo.credenciales").await {
         Ok(Some(v)) if !v.trim().is_empty() => v,
         Ok(_) => return StatusCode::NOT_FOUND.into_response(),

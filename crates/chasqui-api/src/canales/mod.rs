@@ -110,6 +110,139 @@ pub struct Descarga {
     pub mime: Option<String>,
 }
 
+/// Comprueba que una URL de descarga apunta a internet y no a la máquina del
+/// cliente.
+///
+/// # Por qué hace falta si el webhook va firmado
+///
+/// En Instagram y Messenger el «billete» del adjunto **es una URL que viene
+/// dentro del cuerpo del webhook**, y Chasqui la pide. La firma HMAC garantiza
+/// que el cuerpo lo mandó quien tiene el secreto de la app; no garantiza que la
+/// URL apunte a la CDN de Meta. Con `http://` valía `http://127.0.0.1:PUERTO/…`
+/// o `http://169.254.169.254/latest/meta-data/`, y el resultado se guarda como
+/// un medio que quien atiende puede abrir en el panel: el servidor del cliente
+/// pidiéndose a sí mismo lo que hay dentro de su propia red.
+///
+/// **Lo que esta comprobación cubre y lo que no**, dicho sin adornos: cubre el
+/// esquema —solo `https`— y las direcciones IP escritas a la cara que caen en
+/// rangos internos. NO resuelve nombres, así que un nombre de la intranet del
+/// cliente que apunte a una IP privada seguiría pasando. Cerrar eso exige
+/// resolver y comprobar cada dirección antes de conectarse, que es otro
+/// mecanismo con su propio peso; esto quita el camino fácil y lo declara.
+///
+/// # La única excepción, y por qué no es un agujero
+///
+/// Se admite una URL que esté en **el mismo origen que la API que esta
+/// instalación ya tiene configurada** (`CHASQUI_GRAPH`). No es una bandera que
+/// alguien pueda encender: sale de la configuración que ya existe, y la pide el
+/// llamante al apuntar Chasqui a otra API. Es lo que hace que las pruebas de
+/// frontera —que levantan una Graph falsa en `127.0.0.1`— sigan cruzando la
+/// frontera del programa de verdad (directiva 28) en vez de tener que rodear la
+/// comprobación, que es como una salvaguarda acaba desactivada en producción.
+///
+/// En una instalación real `CHASQUI_GRAPH` es `https://graph.facebook.com/…`, y
+/// entonces la excepción solo alcanza a `graph.facebook.com`, que ya pasaba por
+/// la vía estricta: allí no admite ni un destino más.
+pub(crate) fn url_de_descarga_admisible(url: &str, base_api: &str) -> Result<(), String> {
+    let partido = reqwest::Url::parse(url).map_err(|e| format!("no es una URL ({e}): {url:?}"))?;
+
+    if let Ok(base) = reqwest::Url::parse(base_api)
+        && base.host_str().is_some()
+        && base.scheme() == partido.scheme()
+        && base.host_str() == partido.host_str()
+        && base.port_or_known_default() == partido.port_or_known_default()
+    {
+        return Ok(());
+    }
+
+    // Solo `https`. Meta sirve los adjuntos por HTTPS desde hace más de una
+    // década, así que esto no le cierra la puerta a ningún cliente legítimo
+    // (directiva 21) y sí cierra `http://` hacia una red interna.
+    if partido.scheme() != "https" {
+        return Err(format!(
+            "el esquema es {:?} y solo se admite https: una descarga por http puede apuntar a la \
+             red interna del servidor",
+            partido.scheme()
+        ));
+    }
+
+    let Some(anfitrion) = partido.host_str() else {
+        return Err(format!("la URL no trae anfitrión: {url:?}"));
+    };
+
+    // `[::1]` llega entre corchetes; sin quitarlos no parsea y se colaría.
+    let pelado = anfitrion.trim_start_matches('[').trim_end_matches(']');
+    if anfitrion.eq_ignore_ascii_case("localhost") {
+        return Err("el anfitrión es localhost".to_string());
+    }
+    if let Ok(ip) = pelado.parse::<std::net::IpAddr>() {
+        let interna = match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast()
+                    // 100.64.0.0/10, el NAT de operador. No hay método estable.
+                    || (v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1]))
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    // fc00::/7 (únicas locales) y fe80::/10 (enlace local).
+                    || (v6.segments()[0] & 0xfe00) == 0xfc00
+                    || (v6.segments()[0] & 0xffc0) == 0xfe80
+                    // Una IPv4 interna envuelta en IPv6 es la misma IPv4.
+                    || v6.to_ipv4_mapped().is_some_and(|v4| {
+                        v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                    })
+            }
+        };
+        if interna {
+            return Err(format!("la dirección {ip} es de la red interna del servidor"));
+        }
+    }
+    Ok(())
+}
+
+/// Baja un cuerpo **sin llegar a tenerlo entero en memoria si se pasa del tope**.
+///
+/// `Response::bytes()` reserva el cuerpo completo y solo después se puede mirar
+/// cuánto pesaba: negarse ahí evita guardarlo, no reservarlo. Con una descarga
+/// por cada archivo que llega y sin nada que las cuente, un puñado de respuestas
+/// grandes a la vez se lleva por delante la memoria del servidor del cliente.
+/// Aquí se corta **en cuanto** el acumulado pasa del tope, y antes de empezar si
+/// el `Content-Length` ya lo dice.
+pub(crate) async fn bajar_con_tope(
+    peticion: reqwest::RequestBuilder,
+    tope: usize,
+) -> Result<Descarga, ErrorCanal> {
+    let mut respuesta = peticion.send().await?.error_for_status()?;
+
+    if let Some(largo) = respuesta.content_length()
+        && largo > tope as u64
+    {
+        return Err(ErrorCanal::DemasiadoGrande { tamano: largo, tope });
+    }
+
+    let mime = respuesta
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(trozo) = respuesta.chunk().await? {
+        bytes.extend_from_slice(&trozo);
+        if bytes.len() > tope {
+            // Se dice el tamaño que se lleva contado, que es lo que se sabe. No
+            // se inventa el total: el cuerpo se abandona sin terminar de leerlo.
+            return Err(ErrorCanal::DemasiadoGrande { tamano: bytes.len() as u64, tope });
+        }
+    }
+    Ok(Descarga { bytes, mime })
+}
+
 impl ErrorCanal {
     /// Qué hacer, dicho para **quien atiende la cola** y no para quien programa.
     ///
@@ -254,6 +387,114 @@ mod pruebas_explicacion {
         let limite = rechazo(429).explicacion();
         assert!(limite.contains("limitando"), "{limite}");
         assert!(!limite.contains("credenciales"), "confundió un 429 con un 401: {limite}");
+    }
+}
+
+#[cfg(test)]
+mod pruebas_url_de_descarga {
+    /// La API de una instalación de verdad. Todas las pruebas de aquí miden
+    /// contra ella: la excepción del mismo origen tiene su propia prueba abajo.
+    const GRAPH: &str = "https://graph.facebook.com/v21.0";
+
+    fn admisible(url: &str) -> Result<(), String> {
+        super::url_de_descarga_admisible(url, GRAPH)
+    }
+
+    #[test]
+    fn las_urls_de_verdad_de_meta_pasan() {
+        // LA MITAD QUE IMPIDE SOBRECORREGIR (directiva 21). Una regla que
+        // rechaza lo interno y también lo bueno es una regla que hay que quitar
+        // el primer día que un cliente manda una foto. Estas son las formas
+        // reales que sirven los adjuntos de WhatsApp, Instagram y Messenger.
+        for url in [
+            "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=ABC&ext=1&hash=xyz",
+            "https://scontent.xx.fbcdn.net/v/t1.0-9/12345_n.jpg?_nc_cat=1&oh=abc&oe=DEF",
+            "https://mmg.whatsapp.net/d/f/Aq1.enc",
+            "https://graph.facebook.com/v21.0/1234567890",
+        ] {
+            assert!(admisible(url).is_ok(), "rechazó una URL buena: {url} → {:?}", admisible(url));
+        }
+    }
+
+    #[test]
+    fn el_http_a_secas_no_pasa_aunque_el_anfitrion_sea_de_meta() {
+        // La regla es el ESQUEMA, no el destino: comprobar solo el anfitrión
+        // dejaría pasar cualquier http que casara con una lista, y una lista de
+        // dominios de Meta caduca sola.
+        let r = admisible("http://lookaside.fbsbx.com/x.jpg");
+        assert!(r.is_err(), "aceptó http hacia Meta");
+        assert!(r.unwrap_err().contains("https"), "el motivo no dice cuál es la regla");
+    }
+
+    #[test]
+    fn nada_apunta_a_la_maquina_ni_a_la_red_del_cliente() {
+        // El ataque completo: quien tenga el secreto de la app del cliente mete
+        // esta URL en el webhook y Chasqui le trae lo que hay dentro de su red,
+        // guardado como un archivo que se abre desde el panel.
+        for url in [
+            "http://127.0.0.1:8080/admin",
+            "https://127.0.0.1:8080/admin",
+            "http://localhost/",
+            "https://LOCALHOST/x",
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://10.0.0.5/interno",
+            "https://192.168.1.1/router",
+            "https://172.16.30.9/",
+            "https://100.64.0.1/",
+            "https://0.0.0.0/",
+            "https://[::1]/",
+            "https://[fe80::1]/",
+            "https://[fd00::1]/",
+            "https://[::ffff:127.0.0.1]/",
+        ] {
+            assert!(admisible(url).is_err(), "dejó pasar una URL hacia dentro: {url}");
+        }
+    }
+
+    #[test]
+    fn una_ip_publica_si_pasa() {
+        // Que discrimine por RANGO y no por «es una IP»: hay CDNs que sirven por
+        // dirección, y rechazarlas todas sería la sobrecorrección de siempre.
+        assert!(admisible("https://8.8.8.8/x").is_ok());
+        assert!(admisible("https://[2001:4860:4860::8888]/x").is_ok());
+    }
+
+    #[test]
+    fn la_excepcion_del_mismo_origen_no_ensancha_nada_en_produccion() {
+        // Con la API de verdad configurada, la excepción solo alcanza a la
+        // propia graph.facebook.com —que ya pasaba— y a nada más. Si esto se
+        // cae, la excepción dejó de ser un no-op y se convirtió en una puerta.
+        assert!(super::url_de_descarga_admisible("https://graph.facebook.com/v21.0/1", GRAPH).is_ok());
+        for interno in ["http://127.0.0.1:9/x", "https://169.254.169.254/x", "http://graph.facebook.com/x"] {
+            assert!(
+                super::url_de_descarga_admisible(interno, GRAPH).is_err(),
+                "la excepción dejó pasar {interno} con la API real configurada"
+            );
+        }
+    }
+
+    #[test]
+    fn una_api_local_configurada_a_proposito_si_alcanza_a_su_propio_origen() {
+        // Es el caso de las pruebas de frontera y de `probar-con-meta.sh`: una
+        // Graph falsa en el bucle local. Lo pide la configuración del llamante,
+        // no una bandera suelta — y sigue sin alcanzar a NINGÚN otro destino
+        // interno, que es lo que la hace una excepción y no un apagado.
+        let local = "http://127.0.0.1:8123/v21.0";
+        assert!(super::url_de_descarga_admisible("http://127.0.0.1:8123/descargas/1", local).is_ok());
+        for otro in ["http://127.0.0.1:9999/x", "http://169.254.169.254/x", "http://192.168.1.1/x"] {
+            assert!(
+                super::url_de_descarga_admisible(otro, local).is_err(),
+                "con una Graph local, {otro} tampoco puede pasar"
+            );
+        }
+    }
+
+    #[test]
+    fn lo_que_ni_siquiera_es_una_url_se_rechaza_diciendo_que_no_lo_es() {
+        for basura in ["", "MEDIA-123", "ftp://x/y", "javascript:alert(1)", "file:///etc/passwd"] {
+            assert!(admisible(basura).is_err(), "aceptó {basura:?}");
+        }
     }
 }
 

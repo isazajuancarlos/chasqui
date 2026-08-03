@@ -96,6 +96,18 @@ cargo test --workspace --no-fail-fast
   Lo que falta después está en `docs/META.md`.
 - `interfaz/npm test` está cableado a vitest pero **hoy no hay ni un `.spec.ts`**:
   correrlo da cero pruebas, que no es lo mismo que verde.
+- **`/security-review` no arranca en este repositorio y no es un fallo suyo**:
+  construye su diff con `git diff origin/HEAD…`, y aquí **no hay remoto ni rama
+  `main`** —Chasqui nunca se ha empujado: es privado y el push está suspendido—,
+  así que no existe base contra la que diferenciar. La revisión se hace dando la
+  base a mano:
+
+  ```bash
+  python3 /mnt/data/conocimiento/diff_para_revisar.py /mnt/data/chasqui \
+      --rama desarrollo --base <commit> --salida /tmp/revision.diff
+  ```
+
+  El día que exista `main`, esto se arregla solo.
 
 ## Arquitectura
 
@@ -133,7 +145,11 @@ frontera:
   de escribir —a veces su correo, en el flujo de cotización—, y eso es una
   brecha con el dueño de la demo como responsable.
 - **Publicar credenciales del panel y tener chat en vivo son incompatibles.** Se
-  puede una cosa o la otra en la misma instancia, nunca las dos.
+  puede una cosa o la otra en la misma instancia, nunca las dos. **Lo impide el
+  código desde el 2026-08-02**: con `demo.activa = si`, `GET /api/demo` responde
+  404 diga lo que diga `demo.credenciales`, y lo dice en el log para que quien
+  administra se entere de que puso dos ajustes que se excluyen. Antes la regla
+  vivía solo en esta línea, o sea que la sostenía el acordarse de ella.
 
 **El panel es el PRIMER consumidor de `/api`, no una pantalla con acceso
 privilegiado a la base** (`docs/INTEGRACION.md`, costura 4). Es lo que convierte

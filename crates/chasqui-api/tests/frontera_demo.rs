@@ -355,3 +355,48 @@ async fn la_pagina_y_su_guion_se_sirven_desde_el_binario() {
         "el guion pinta con innerHTML: use textContent"
     );
 }
+
+#[tokio::test]
+async fn publicar_las_credenciales_y_tener_chat_en_vivo_no_pueden_coexistir() {
+    // LA TERCERA REGLA DE CONTENCIÓN, que hasta hoy solo estaba escrita en prosa.
+    //
+    // `GET /api/demo` publica la contraseña del panel para que la pantalla de
+    // entrada la enseñe. Con el chat en vivo encendido, detrás de ese panel hay
+    // conversaciones de personas de verdad —a veces con su correo, del flujo de
+    // cotización—, así que publicar la contraseña se las entrega a cualquier
+    // desconocido. No es una demo floja: es una brecha, y el responsable del
+    // tratamiento es quien monta la demostración.
+    //
+    // La regla vivía en el CLAUDE.md y la sostenía el acordarse de ella. Aquí se
+    // vuelve máquina (directiva 6).
+    let viva = instancia("credenciales-con-chat", true).await;
+    let puesto = viva
+        .orden()
+        .args(["ajuste", "poner", "demo.credenciales", "juan@demo.local|la-clave|Entre y pruebe"])
+        .output()
+        .unwrap();
+    assert!(puesto.status.success(), "no se pudo poner el ajuste: {puesto:?}");
+
+    let r = cliente().get(format!("{}/api/demo", viva.base)).send().await.unwrap();
+    assert_eq!(
+        r.status(),
+        404,
+        "publicó la contraseña del panel teniendo chat en vivo: cualquiera lee la conversación de todos"
+    );
+
+    // Y DISCRIMINA. Sin esta mitad la prueba pasaría igual si la ruta estuviera
+    // rota, o si nadie hubiera guardado el ajuste: mediría el 404 equivocado.
+    let seca = instancia("credenciales-sin-chat", false).await;
+    let puesto = seca
+        .orden()
+        .args(["ajuste", "poner", "demo.credenciales", "juan@demo.local|la-clave|Entre y pruebe"])
+        .output()
+        .unwrap();
+    assert!(puesto.status.success(), "no se pudo poner el ajuste: {puesto:?}");
+
+    let r = cliente().get(format!("{}/api/demo", seca.base)).send().await.unwrap();
+    assert_eq!(r.status(), 200, "sin chat en vivo las credenciales SÍ se publican");
+    let cuerpo: Value = r.json().await.unwrap();
+    assert_eq!(cuerpo["correo"], "juan@demo.local");
+    assert_eq!(cuerpo["clave"], "la-clave");
+}

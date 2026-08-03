@@ -42,14 +42,14 @@ use crate::servicio::Servicio;
 use crate::web::{CABECERA_VISITANTE, cors, error, sitio, sitio_pedido};
 
 /// El ajuste que enciende todo esto. Ausente en cualquier instalación normal.
-const AJUSTE: &str = "demo.activa";
+pub const AJUSTE: &str = "demo.activa";
 
 /// `true` solo si alguien escribió `si` a propósito.
 ///
 /// Se lee en CADA petición y no se guarda en memoria al arrancar: apagar la
 /// demostración tiene que surtir efecto al momento, sin reiniciar el servicio.
 /// Un interruptor que hay que recordar reiniciar es un interruptor que no está.
-async fn encendida(servicio: &Servicio) -> bool {
+pub(crate) async fn encendida(servicio: &Servicio) -> bool {
     matches!(ajuste::leer(&servicio.pool, AJUSTE).await, Ok(Some(v)) if v.trim() == "si")
 }
 
