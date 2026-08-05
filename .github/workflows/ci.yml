@@ -1,0 +1,113 @@
+# CI de chasqui. Nace el 2026-08-05, con el repositorio.
+#
+# POR QUÉ TAN TARDE, que es la lección y no un dato de archivo: chasqui vivía sin
+# remoto y sin CI, así que `cargo clippy -- -D warnings` no lo había corrido
+# nadie nunca. Al correrlo aparecieron DOS capas de avisos, y la segunda estaba
+# TAPADA por la primera —clippy se para en el primer crate con errores—. Las 410
+# pruebas pasaban, o sea que el repositorio parecía sano por el único lado que
+# alguien miraba. No era que la deuda no existiera: era que el instrumento no.
+
+name: CI
+
+# CADA COMMIT SE PRUEBA UNA VEZ, no dos. Una rama con PR abierto dispara los DOS
+# eventos sobre el mismo commit si `push` escucha en todas las ramas, y en un
+# repositorio PRIVADO los minutos de Actions se facturan — el cupo de la cuenta
+# ya se agotó una vez, el 2026-07-31.
+#
+# `push` se queda SOLO en `main`, que es lo que verifica el commit de fusión: el
+# resultado de un squash no lo ha probado nadie hasta que existe.
+#
+# LO QUE DEJA FUERA, deliberado: una rama empujada SIN PR no tiene CI. El flujo
+# es rama -> PR -> merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Un empuje nuevo cancela la corrida anterior de la misma referencia. En `main`
+# NO se cancela: cada commit de esa rama es un estado publicado y su resultado
+# tiene que quedar registrado.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  # Menor privilegio: este CI solo prueba, con checkout de solo lectura. Sin este
+  # bloque el GITHUB_TOKEN hereda permisos amplios.
+  contents: read
+
+jobs:
+  rust:
+    name: test + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # `--all-targets` incluye pruebas y ejemplos: sin él, clippy no mira el
+      # código de prueba, que es justo donde estaban los nueve avisos de la
+      # primera capa.
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # `--no-fail-fast` NO es opcional: sin él, cargo test aborta en el primer
+      # binario que falla y las pruebas de los otros crates no llegan a
+      # ejecutarse — un rojo que además esconde el estado del resto.
+      #
+      # No hace falta construir la interfaz: `build.rs` empotra `interfaz/dist`,
+      # que no viaja en el repositorio, y cuando falta empotra una página que
+      # dice qué ejecutar. En debug eso basta; el release sí la necesita.
+      - name: test
+        run: cargo test --workspace --no-fail-fast
+
+  auditoria-deps:
+    name: cargo-audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # El único ignore vive en .cargo/audit.toml, con su justificación medida.
+      - name: cargo-audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+  cadena-suministro:
+    name: cargo-deny (supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Exige que toda dependencia venga de una fuente autorizada —crates.io o
+      # nuestro repositorio de guaca—, prohíbe comodines de versión y controla
+      # licencias. Es la defensa contra que una dep se traiga de una fuente
+      # inesperada (vector del ataque Atomic Arch). Config en deny.toml.
+      - name: cargo-deny
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+
+  interfaz:
+    name: interfaz (ng build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: interfaz/package-lock.json
+      # El frontal NO lo cubre `cargo test`: lo que se empotra es `dist/`, y en
+      # debug se sustituye por una página de aviso. Sin este trabajo, romper la
+      # interfaz sale verde hasta que alguien construye el release.
+      #
+      # `npm test` NO se corre a propósito: está cableado a vitest y no hay ni un
+      # `.spec.ts`, así que daría cero pruebas — y cero pruebas no es verde, es
+      # nada. Cuando exista la primera, se añade aquí.
+      - name: build
+        run: npm ci && npm run build
+        working-directory: interfaz

@@ -1,0 +1,53 @@
+# cargo-deny — control de cadena de suministro (lección Atomic Arch).
+# Complementa a cargo-audit: además de CVEs conocidos, exige que TODA dependencia
+# venga de una fuente autorizada, prohíbe comodines de versión y controla
+# licencias.
+#
+# Nace el 2026-08-05, con el CI. Hasta ese día chasqui no tenía ninguno de los
+# dos, y no porque se decidiera correr el riesgo: el instrumento no existía.
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+# Allowlist AJUSTADA al árbol real (directiva 23): una licencia NUEVA en una
+# subida = rojo, y se decide a mano si entra. No se pre-aprueban licencias
+# ausentes «por si acaso» — eso convierte el guardián en un sello.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    # `webpki-roots`, que entra por `reqwest -> hyper-rustls`: es el almacén de
+    # raíces de certificación de Mozilla. Se licencia así porque son DATOS, no
+    # código —Community Data License Agreement, permisiva—, y su distribución
+    # dentro de un binario propietario está permitida. La añade la primera
+    # corrida de `cargo deny` (2026-08-05), que la rechazó por no estar.
+    "CDLA-Permissive-2.0",
+    # De casa: guaca y quipu son AGPL, con licencia comercial aparte. chasqui es
+    # un producto de VENTA y su propia licencia es propietaria — que un binario
+    # propietario enlace AGPL de la que somos titulares es exactamente para lo
+    # que existe la doble licencia.
+    "AGPL-3.0-or-later",
+    "LicenseRef-Propietario-IsazaArenas",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"   # avisa de versiones duplicadas (superficie + peso)
+wildcards = "deny"           # prohíbe version = "*" en deps EXTERNAS
+allow-wildcard-paths = true  # …pero no en los deps internos por `path` (son nuestros)
+
+[sources]
+# El corazón anti-Atomic-Arch: una dependencia desde una fuente inesperada = rojo.
+unknown-registry = "deny"
+unknown-git = "deny"
+# guaca no está en crates.io y se fija por commit inmutable, nunca por tag.
+allow-git = ["https://github.com/isazajuancarlos/guaca"]

@@ -1,0 +1,71 @@
+# Aviso automático de actualizaciones. Nace con el repositorio, el 2026-08-05.
+#
+# NUNCA poner `target-branch` en una entrada. Desconecta esa entrada de las
+# actualizaciones de SEGURIDAD —que van siempre contra la rama por defecto— y lo
+# hace sin dar error: se queda pareciendo que vigila. El ruido se arregla
+# agrupando, que es lo de abajo, no cambiando de rama.
+#
+# Y OJO CON LO QUE ESTE ARCHIVO **NO** HACE: no enciende nada. Las ALERTAS son
+# un ajuste del repositorio, no un archivo, y **no vienen encendidas** — medido
+# el 2026-08-05: los tres repos privados de la casa las tenían apagadas mientras
+# los tres públicos las tenían. Se comprueba así, y 404 significa apagadas:
+#
+#     gh api -i repos/isazajuancarlos/chasqui/vulnerability-alerts | head -1
+version: 2
+updates:
+  # --- Las acciones del CI -------------------------------------------------
+  # Corren con el `GITHUB_TOKEN` del repositorio: una acción sin mantener es
+  # superficie de cadena de suministro igual que un crate, y no la mira
+  # `cargo-deny`.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      acciones:
+        # `patterns` NO ES OPCIONAL aunque el grupo parezca completo sin él:
+        # `update-types` solo FILTRA lo que ya entró, quien SELECCIONA es
+        # `patterns`. Sin él el grupo queda vacío y dependabot abre un PR por
+        # acción, en silencio y sin error de sintaxis. Medido en guaca el
+        # 2026-08-04: sin `patterns`, cuatro PR sueltos; con él, uno.
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+
+  # --- Las dependencias de Rust --------------------------------------------
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      compatibles:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    # `groups` lleva por defecto `applies-to: version-updates`, así que esto
+    # agrupa el mantenimiento semanal y NO las actualizaciones de SEGURIDAD: un
+    # CVE abrirá su PR suelto. No se arregla agrupándolas —agrupar seguridad la
+    # retrasa, que es peor—: se arregla mirando ese PR el día que llegue.
+    open-pull-requests-limit: 5
+    # `guaca` no la mueve dependabot: se fija por `rev` de git, que dependabot no
+    # resuelve. El `ignore` es inofensivo por una razón que conviene escribir,
+    # porque puede dejar de cumplirse: **guaca no está en ningún registro**, así
+    # que no puede tener alerta y no hay PR de seguridad que suprimir. Si algún
+    # día se publica, este `ignore` pasa a tapar CVEs sin dar error y hay que
+    # quitarlo — `ignore` SÍ suprime los PR de actualización de seguridad.
+    ignore:
+      - dependency-name: guaca
+
+# LO QUE NO SE VIGILA DESDE AQUÍ, dicho para que no pase por cubierto:
+#
+#   · `interfaz/package.json` (npm). La versión de Angular no es libre: la
+#     política de Juan (#254, directiva 26) es una sola versión común a TODOS los
+#     desarrollos. Además los paquetes de Angular se peer-dependen con versión
+#     EXACTA entre sí, así que ninguno sube suelto: un PR de dependabot
+#     proponiendo `@angular/core` solo no puede compilar. Se sube a mano, con
+#     `ng update`, y en todos los repositorios a la vez.
+#
+#     Esto NO le quita cobertura de CVE: las alertas de seguridad no dependen de
+#     este archivo —lee el grafo de dependencias— y `package-lock.json` está
+#     versionado. Lo que la ausencia apaga son los PR de VERSIÓN, no los de
+#     seguridad.
+#
+# Si deja de tener sentido, se añade la entrada y se borra este párrafo.
