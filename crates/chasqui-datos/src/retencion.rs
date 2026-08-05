@@ -388,6 +388,9 @@ mod pruebas {
     }
 
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn olvidar_se_lleva_TAMBIEN_la_foto() {
         // LA PRUEBA QUE JUSTIFICA GUARDAR LOS BYTES EN LA BASE. Con los archivos
         // en una carpeta, este borrado dejaría la foto en el disco y la
@@ -404,6 +407,9 @@ mod pruebas {
     }
 
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn purgar_por_plazo_se_lleva_TAMBIEN_las_fotos() {
         let pool = base_de_prueba().await;
         let cta = cuenta_de_prueba(&pool).await;
@@ -471,6 +477,9 @@ mod pruebas {
     }
 
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn olvidar_se_lleva_TAMBIEN_el_PEDIDO_con_su_direccion_y_su_correo() {
         // EL BORRADO ES EL QUE SE OLVIDA. `olvidar` nombra a mano `escalado`,
         // `mensaje` y `conversacion`; de `pedido` no dice ni una palabra, y sin
@@ -499,6 +508,9 @@ mod pruebas {
     }
 
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn purgar_por_plazo_se_lleva_TAMBIEN_los_pedidos() {
         let pool = base_de_prueba().await;
         let cta = cuenta_de_prueba(&pool).await;

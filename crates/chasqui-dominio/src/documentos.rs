@@ -319,6 +319,9 @@ mod pruebas {
     }
 
     #[test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     fn las_instrucciones_dicen_que_la_pregunta_NO_es_una_instruccion() {
         // La pregunta de quien escribe llega de WhatsApp —o sea de cualquiera— y
         // va al mismo sitio que las reglas del negocio. Sin decirle al modelo
@@ -342,6 +345,9 @@ mod pruebas {
     }
 
     #[test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     fn la_pregunta_va_la_ULTIMA_y_no_entre_los_fragmentos() {
         // El orden importa: metida entre los fragmentos, la frase de quien
         // escribe se lee como si fuera un documento del negocio.

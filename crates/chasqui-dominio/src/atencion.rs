@@ -1045,6 +1045,9 @@ mod pruebas {
     }
 
     #[test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     fn cancelar_sale_del_flujo_y_NO_llama_a_nadie() {
         // Quien cancela quiere irse. Mandarle una persona detrás es no haberlo
         // escuchado, y llena la cola de trabajo que nadie pidió.

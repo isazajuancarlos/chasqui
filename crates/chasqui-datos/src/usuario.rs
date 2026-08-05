@@ -332,6 +332,9 @@ mod pruebas_de_tiempo {
     /// diferencia del 20 % que en una máquina cargada es ruido. Una prueba de
     /// tiempo apretada es una prueba que falla sola y que se acaba borrando.
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn un_correo_que_no_existe_tarda_LO_MISMO_que_uno_que_si() {
         let pool = base_de_prueba().await;
         crear(&pool, "ana@acme.com", "Ana", "una-contraseña-larga", Utc::now()).await.unwrap();

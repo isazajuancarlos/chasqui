@@ -681,6 +681,9 @@ mod pruebas {
         assert_eq!(modo_dir & 0o777, 0o700, "la carpeta quedó abierta");
     }
     #[tokio::test]
+    // La mayúscula es énfasis deliberado: el nombre de la prueba es la frase que
+    // afirma, y la palabra en mayúscula es la que decide si la frase es cierta.
+    #[allow(non_snake_case)]
     async fn el_respaldo_se_lleva_los_BYTES_de_las_fotos() {
         // LA OTRA MITAD DE POR QUÉ LOS MEDIOS VAN DENTRO DE LA BASE. Con los
         // archivos en una carpeta al lado, `VACUUM INTO` copiaría la base y no
