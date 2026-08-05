@@ -43,6 +43,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: interfaz/package-lock.json
+      # LA INTERFAZ SE CONSTRUYE ANTES DE PROBAR, y esto no es un adorno: la
+      # primera versión de este workflow decía «no hace falta construirla, en
+      # debug basta» y **la primera corrida del CI la puso en rojo**.
+      #
+      # `build.rs` empotra `interfaz/dist/interfaz/browser`, que NO viaja en el
+      # repositorio; cuando falta, empotra una página de aviso que dice qué
+      # ejecutar. Y `frontera_panel::el_panel_se_sirve_desde_el_binario` exige un
+      # `<app-root>` en la raíz — existe exactamente para distinguir «hay un
+      # rust-embed en el código» de «la interfaz está construida y empotrada».
+      # En local pasaba porque `dist/` estaba ahí de una construcción anterior;
+      # en un clon limpio, no. Es la directiva 28 cazando al propio CI.
+      - name: interfaz
+        run: npm ci && npm run build
+        working-directory: interfaz
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -55,10 +74,6 @@ jobs:
       # `--no-fail-fast` NO es opcional: sin él, cargo test aborta en el primer
       # binario que falla y las pruebas de los otros crates no llegan a
       # ejecutarse — un rojo que además esconde el estado del resto.
-      #
-      # No hace falta construir la interfaz: `build.rs` empotra `interfaz/dist`,
-      # que no viaja en el repositorio, y cuando falta empotra una página que
-      # dice qué ejecutar. En debug eso basta; el release sí la necesita.
       - name: test
         run: cargo test --workspace --no-fail-fast
 
@@ -91,23 +106,12 @@ jobs:
           cargo install cargo-deny --locked
           cargo deny check
 
-  interfaz:
-    name: interfaz (ng build)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: interfaz/package-lock.json
-      # El frontal NO lo cubre `cargo test`: lo que se empotra es `dist/`, y en
-      # debug se sustituye por una página de aviso. Sin este trabajo, romper la
-      # interfaz sale verde hasta que alguien construye el release.
-      #
-      # `npm test` NO se corre a propósito: está cableado a vitest y no hay ni un
-      # `.spec.ts`, así que daría cero pruebas — y cero pruebas no es verde, es
-      # nada. Cuando exista la primera, se añade aquí.
-      - name: build
-        run: npm ci && npm run build
-        working-directory: interfaz
+# NO HAY UN TRABAJO `interfaz` APARTE, y es deliberado desde el 2026-08-05.
+# Lo hubo, y era redundante: el trabajo `rust` ya construye la interfaz porque
+# sus pruebas la necesitan, así que un `ng build` en un segundo trabajo pagaba
+# los mismos dos minutos para comprobar lo mismo. Si la interfaz no compila,
+# `rust` se pone rojo en su paso `interfaz`, antes de tocar cargo.
+#
+# `npm test` NO se corre en ningún sitio, a propósito: está cableado a vitest y
+# no hay ni un `.spec.ts`, así que daría cero pruebas — y cero pruebas no es
+# verde, es nada. Cuando exista la primera, se añade al trabajo `rust`.
