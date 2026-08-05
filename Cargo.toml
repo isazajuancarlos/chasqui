@@ -51,8 +51,20 @@ hex = "0.4"
 # Cifrado en reposo de las credenciales del cliente (token de Meta, clave del
 # modelo). Fijado por commit inmutable, no por tag: un tag es mutable y moverlo a
 # un commit malicioso nos lo traería al construir (lección del ataque a AUR).
-# Es el MISMO rev que usa medico: una sola versión auditada para los dos productos.
-guaca = { git = "https://github.com/isazajuancarlos/guaca", rev = "2ffe1346b706f5fbb8f5eaaea1c37375682c807d" }
+# Es el MISMO rev que usan medico, informes y tunjo: una sola versión auditada
+# para todos los productos.
+#
+# 2026-08-05: sube de `2ffe134` a `23395f3` (11 commits). Dos motivos, y el
+# primero es una obligación de licencia: el árbol de `2ffe134` **no lleva
+# `LICENSE` en la raíz**, así que lo que se vendorizaba al construir era una copia
+# de guaca sin el texto de la AGPL que la ampara. No lo caza ninguna máquina —
+# `cargo deny check licenses` lee el campo `license` del `Cargo.toml` de la
+# dependencia, no el árbol, y daba `licenses ok` con las dos revisiones; lo que
+# discrimina es `ls ~/.cargo/git/checkouts/guaca-*/<rev>/`. El segundo motivo es
+# que chasqui se había quedado 11 commits atrás de los demás consumidores, con
+# `freno.rs` (389 líneas) y los cinco vectores fijos de compatibilidad dentro.
+# chasqui NO depende de quipu directamente; el control se corre igual.
+guaca = { git = "https://github.com/isazajuancarlos/guaca", rev = "23395f3587e0cb6a88b123a732dfdf9ecbe1bc0f" }
 
 [profile.release]
 lto = true
