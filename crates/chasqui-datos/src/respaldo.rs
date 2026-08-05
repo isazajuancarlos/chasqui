@@ -333,24 +333,29 @@ pub async fn restaurar(
     // usuarios», y una instalación con la cuenta del cliente y su token de Meta
     // dentro no era ninguna de las dos: se pisaba sin avisar. Un «en cualquier
     // otro caso» en la regla es el fallo (directiva 23).
-    if destino.exists() && !forzar {
-        if let Ok(mut cx) = conectar(&destino).await {
-            let poblado = recuentos(&mut cx).await.unwrap_or_default();
-            cx.close().await.ok();
-            let con_datos: Vec<(String, i64)> = poblado
-                .into_iter()
-                .filter(|(tabla, n)| *n > 0 && !SEMBRADAS.contains(&tabla.as_str()))
-                .collect();
-            if !con_datos.is_empty() {
-                return Err(ErrorRespaldo::DestinoConDatos(con_datos));
-            }
+    // El `&& let` es una cadena `let` (edición 2024): la conexión solo se intenta
+    // si el destino existe y no se forzó. Colapsado a propósito, no por gusto de
+    // clippy — anidado, el `if let` interior se leía como una segunda decisión
+    // cuando es la misma.
+    if destino.exists() && !forzar && let Ok(mut cx) = conectar(&destino).await {
+        let poblado = recuentos(&mut cx).await.unwrap_or_default();
+        cx.close().await.ok();
+        let con_datos: Vec<(String, i64)> = poblado
+            .into_iter()
+            .filter(|(tabla, n)| *n > 0 && !SEMBRADAS.contains(&tabla.as_str()))
+            .collect();
+        if !con_datos.is_empty() {
+            return Err(ErrorRespaldo::DestinoConDatos(con_datos));
         }
     }
 
-    if let Some(padre) = destino.parent() {
-        if !padre.as_os_str().is_empty() {
-            std::fs::create_dir_all(padre)?;
-        }
+    // `parent()` de una ruta sin carpeta —`"copia.db"`— devuelve `Some("")`, no
+    // `None`, y `create_dir_all("")` falla. Por eso las dos condiciones, y por eso
+    // van en la misma cadena: es UNA pregunta («¿hay carpeta que crear?»), no dos.
+    if let Some(padre) = destino.parent()
+        && !padre.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(padre)?;
     }
     std::fs::copy(carpeta.join(NOMBRE_COPIA), &destino)?;
 
