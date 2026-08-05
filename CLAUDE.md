@@ -96,18 +96,69 @@ cargo test --workspace --no-fail-fast
   Lo que falta después está en `docs/META.md`.
 - `interfaz/npm test` está cableado a vitest pero **hoy no hay ni un `.spec.ts`**:
   correrlo da cero pruebas, que no es lo mismo que verde.
-- **`/security-review` no arranca en este repositorio y no es un fallo suyo**:
-  construye su diff con `git diff origin/HEAD…`, y aquí **no hay remoto ni rama
-  `main`** —Chasqui nunca se ha empujado: es privado y el push está suspendido—,
-  así que no existe base contra la que diferenciar. La revisión se hace dando la
-  base a mano:
+- **`/security-review` YA ARRANCA aquí.** Hasta el 2026-08-05 no lo hacía, y no
+  era un fallo suyo: construye su diff con `git diff origin/HEAD…` y este
+  repositorio **no tenía remoto ni rama `main`**, así que no existía base contra
+  la que diferenciar. Ese día chasqui se subió a GitHub (privado), la rama
+  `desarrollo` pasó a ser `main` y el problema desapareció solo. Sigue valiendo
+  la forma manual cuando se quiera fijar la base:
 
   ```bash
   python3 /mnt/data/conocimiento/diff_para_revisar.py /mnt/data/chasqui \
-      --rama desarrollo --base <commit> --salida /tmp/revision.diff
+      --rama <rama> --base main --salida /tmp/revision.diff
   ```
 
-  El día que exista `main`, esto se arregla solo.
+  (Aquella nota decía «el día que exista `main`, esto se arregla solo». Existe.)
+
+## El CI — cuatro trabajos, y por qué son cuatro
+
+`.github/workflows/ci.yml`, desde el **2026-08-05**. Antes de esa fecha chasqui
+no tenía remoto ni CI, y eso no era una decisión: **`cargo clippy -D warnings` no
+lo había corrido nadie nunca**. Al correrlo salieron DOS capas de avisos, y la
+segunda estaba TAPADA por la primera —clippy se para en el primer crate con
+errores—. Las 410 pruebas pasaban, o sea que el repositorio parecía sano por el
+único lado que alguien miraba.
+
+| trabajo | comando exacto |
+|---|---|
+| `test + clippy` | `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace --no-fail-fast` |
+| `cargo-audit (RustSec)` | `cargo audit` (el único *ignore* vive en `.cargo/audit.toml`) |
+| `cargo-deny (supply chain)` | `cargo deny check` (config en `deny.toml`) |
+| `interfaz (ng build)` | `npm ci && npm run build` en `interfaz/` |
+
+Para reproducir el verde en local se copian **esos** comandos, no unos parecidos.
+Tres cosas que no son opcionales y ya costaron algo:
+
+- **`--all-targets`**: sin él clippy no mira el código de prueba, que es
+  exactamente donde estaban los nueve avisos de la primera capa.
+- **`--no-fail-fast`**: sin él `cargo test` aborta en el primer binario que falla
+  y las pruebas de los otros crates no llegan a ejecutarse.
+- **El trabajo `interfaz` existe porque `cargo test` NO cubre el frontal.** Lo que
+  se empotra es `dist/`, y en debug `build.rs` lo sustituye por una página de
+  aviso: romper la interfaz salía verde hasta que alguien construyera el release.
+  **`npm test` no se corre a propósito** — está cableado a vitest y no hay ni un
+  `.spec.ts`, así que daría cero pruebas, y cero no es verde, es nada.
+
+**El `ignore` de `cargo-audit` es uno y está medido**, no copiado de otro
+repositorio: RUSTSEC-2023-0071 (Marvin, `rsa` 0.9.x). `rsa` figura en el
+`Cargo.lock` porque `sqlx-macros-core` declara los tres backends para el macro
+`migrate!`, pero **`cargo tree --workspace -i rsa` imprime «nothing to print»** —
+no lo alcanza nadie en el grafo—, y el control positivo es que el mismo comando
+sí resuelve `sqlx-macros-core`. chasqui pide `sqlx` con `default-features = false`
+y solo `sqlite`. cargo-audit lo marca porque lee el LOCK, no el grafo. **Deja de
+ser ignorable el día que se habilite el backend `mysql`**, no en una fecha.
+
+**Las alertas de Dependabot no vienen encendidas** y `dependabot.yml` no las
+enciende: son un ajuste del repositorio. Se comprueban con
+`gh api -i repos/isazajuancarlos/chasqui/vulnerability-alerts | head -1` — 204 es
+encendidas, 404 apagadas. Se encendieron el 2026-08-05, el mismo día en que se
+midió que los tres repositorios privados de la casa las tenían apagadas mientras
+los tres públicos las tenían.
+
+Corre en `push` **solo a `main`** y en `pull_request` contra `main`.
+**Consecuencia declarada: una rama empujada sin PR no tiene CI**; el flujo es
+rama → PR → merge. Es deliberado: chasqui es privado y sus minutos de Actions
+salen del cupo de la cuenta.
 
 ## Arquitectura
 
