@@ -55,25 +55,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: interfaz/package-lock.json
-      # LA INTERFAZ SE CONSTRUYE ANTES DE PROBAR, y esto no es un adorno: la
-      # primera versión de este workflow decía «no hace falta construirla, en
-      # debug basta» y **la primera corrida del CI la puso en rojo**.
-      #
-      # `build.rs` empotra `interfaz/dist/interfaz/browser`, que NO viaja en el
-      # repositorio; cuando falta, empotra una página de aviso que dice qué
-      # ejecutar. Y `frontera_panel::el_panel_se_sirve_desde_el_binario` exige un
-      # `<app-root>` en la raíz — existe exactamente para distinguir «hay un
-      # rust-embed en el código» de «la interfaz está construida y empotrada».
-      # En local pasaba porque `dist/` estaba ahí de una construcción anterior;
-      # en un clon limpio, no. Es la directiva 28 cazando al propio CI.
-      - name: interfaz
-        run: npm ci && npm run build
-        working-directory: interfaz
+      # YA NO SE CONSTRUYE NINGUNA INTERFAZ CON npm. Desde el 2026-08-06 el panel
+      # se teje en el servidor con maud (módulo `chasqui-api::vista`, directiva
+      # 26): el HTML lo compila `rustc`, y htmx + `boi` van vendorizados y
+      # embebidos por `include_str!`. Desapareció `interfaz/` (Angular), su
+      # `package-lock.json`, `rust-embed` y `build.rs` — y con ellos el paso de
+      # `setup-node` + `npm ci && npm run build` que había aquí. La frontera
+      # `frontera_panel::el_panel_se_sirve_desde_el_binario` ya no busca
+      # `<app-root>` sino que el panel maud se sirve de verdad.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

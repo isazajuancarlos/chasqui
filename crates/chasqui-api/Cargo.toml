@@ -33,9 +33,11 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 clap = { version = "4", features = ["derive"] }
-# La interfaz viaja DENTRO del binario: un solo ejecutable en el servidor del
-# cliente, sin carpetas que copiar ni servidor de estáticos que configurar.
-rust-embed = { version = "8", features = ["mime-guess"] }
+# El panel se teje EN EL SERVIDOR con maud (directiva 26): HTML compilado por
+# rustc con los tipos del dominio dentro, sin Node ni npm en el build. htmx y la
+# micro-librería `boi` van vendorizados y embebidos por `include_str!` (nunca
+# CDN) — un solo ejecutable offline en el servidor del cliente.
+maud = { version = "0.27", features = ["axum"] }
 guaca = { workspace = true }
 
 [dev-dependencies]

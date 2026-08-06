@@ -63,20 +63,32 @@ construir lo que a uno le parece.
 
 ## Stack
 
-Rust (`axum` + `SQLx`/SQLite) con Angular Material embebido en el binario
-(directiva 26). Un ejecutable en el servidor del cliente, una base por instancia.
-Angular 22 + `@angular/material`; **PrimeNG prohibido** (ver general).
+Rust (`axum` + `SQLx`/SQLite) con el panel tejido EN EL SERVIDOR con **`maud` +
+htmx** (directiva 26), servido por el mismo binario. Un ejecutable en el servidor
+del cliente, una base por instancia.
+
+**Migrado de Angular 22 + Material a maud+htmx el 2026-08-06** (segundo proyecto
+del cambio de estándar, tras nexus). Desaparecieron `interfaz/` (Angular),
+`package-lock.json`, `rust-embed` y `build.rs`: **el build ya no toca Node**. El
+panel vive en `crates/chasqui-api/src/vista.rs` (las 5 vistas: entrar, cola,
+conversación, pedidos, configurar); htmx 2.0.4 y la micro-librería `boi` van
+**vendorizados** en `crates/chasqui-api/estaticos/` y embebidos por
+`include_str!`, servidos locales (nunca CDN). `boi` estrenó aquí sus dos primeros
+comportamientos reales: la confirmación de doble pulsación del borrado y el
+autoscroll del chat (`estaticos/comportamientos.js`). El CSS es propio, con
+variables y theme-aware. **`/api` (JSON) NO cambió**: sigue siendo la superficie
+de integración para la aplicación del cliente; el panel es un segundo consumidor,
+ahora server-rendered.
 
 ## Construir y probar
 
 ```bash
-# La interfaz primero: es un artefacto de npm que NO viaja en el repositorio, y
-# `build.rs` la empotra desde interfaz/dist/interfaz/browser.
-cd interfaz && npm install && npm run build && cd ..
-
 cargo build --release           # el binario `chasqui`, con el panel dentro
 cargo test --workspace --no-fail-fast
 ```
+
+**Ya no hay paso de `npm`**: el panel es HTML tejido por `rustc` (maud). Cambiar
+una vista es editar `src/vista.rs` y recompilar; no hay `dist/` que reconstruir.
 
 - **`--no-fail-fast` no es opcional**: sin él, `cargo test` aborta en el primer
   binario que falla y las pruebas de los otros crates NO llegan a ejecutarse —

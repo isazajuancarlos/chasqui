@@ -21,54 +21,20 @@ pub mod modelo;
 pub mod panel;
 pub mod servicio;
 pub mod sesion;
+pub mod vista;
 pub mod web;
 pub mod webhook;
 
 use axum::Router;
 use axum::http::{StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{get, patch, post};
 
 use servicio::Servicio;
 
-/// La interfaz, empotrada en el binario.
-///
-/// Un solo ejecutable en el servidor del cliente: sin carpetas que copiar al
-/// desplegar ni un servidor de estáticos que configurar aparte. `build.rs` se
-/// encarga de que la carpeta exista aunque no se haya construido la interfaz.
-#[derive(rust_embed::Embed)]
-#[folder = "../../interfaz/dist/interfaz/browser"]
-struct Interfaz;
-
-/// Sirve un archivo de la interfaz, o `index.html` si la ruta no es un archivo.
-///
-/// Esa caída a `index.html` es lo que hace que recargar el navegador en
-/// `/conversaciones/7` funcione: las rutas las resuelve Angular en el navegador,
-/// y el servidor no las conoce. Sin ella, cualquier recarga da 404 — el fallo
-/// que aparece el día de la demostración y nunca al desarrollar.
-async fn estatico(uri: axum::http::Uri) -> Response {
-    let ruta = uri.path().trim_start_matches('/');
-    let ruta = if ruta.is_empty() { "index.html" } else { ruta };
-
-    if let Some(archivo) = Interfaz::get(ruta) {
-        let tipo = archivo.metadata.mimetype();
-        return ([(header::CONTENT_TYPE, tipo)], archivo.data).into_response();
-    }
-
-    match Interfaz::get("index.html") {
-        Some(indice) => {
-            ([(header::CONTENT_TYPE, "text/html")], indice.data).into_response()
-        }
-        // Solo si el binario se construyó sin interfaz Y sin el marcador de
-        // `build.rs`. Se dice qué pasa en vez de devolver una página en blanco.
-        None => (
-            StatusCode::NOT_FOUND,
-            "Este binario no lleva la interfaz dentro. Construya con: \
-             cd interfaz && npm run build",
-        )
-            .into_response(),
-    }
-}
+// El panel ya no es un SPA de Angular embebido: se teje en el servidor con maud
+// (módulo `vista`, directiva 26). No hay `rust-embed` ni `web/dist`; htmx y `boi`
+// van vendorizados y servidos por `vista::{htmx_js, boi_js, ...}`.
 
 /// La política de contenido de la APLICACIÓN. Ver [`cabeceras_de_seguridad`].
 const CSP: &str = "default-src 'self'; \
@@ -203,9 +169,36 @@ pub fn router(servicio: Servicio) -> Router {
         // «vivo» que enumere lo que falta es un mapa para quien lo lea.
         .route("/salud", get(|| async { "vivo" }))
         .nest("/api", api)
-        // Lo demás es la interfaz. Va la ÚLTIMA: así una ruta de la API nunca
-        // queda tapada por el comodín.
-        .fallback(estatico)
+        // El PANEL, tejido en el servidor con maud + htmx (módulo `vista`). Las
+        // páginas exigen sesión por el extractor `vista::Panelista`, que sin
+        // cookie válida redirige a `/entrar` (no un 401: lo abre una persona).
+        .route("/", get(vista::raiz))
+        .route("/entrar", get(vista::entrar_pagina).post(vista::entrar_enviar))
+        .route("/salir", post(vista::salir_enviar))
+        .route("/cola", get(vista::cola_pagina))
+        .route("/cola/lista", get(vista::cola_lista))
+        .route("/escalados/{id}/atender", post(vista::atender_enviar))
+        .route("/conversacion/{id}", get(vista::conversacion_pagina))
+        .route("/conversacion/{id}/hilo", get(vista::conversacion_hilo))
+        .route("/conversacion/{id}/responder", post(vista::responder_enviar))
+        .route("/conversacion/{id}/devolver", post(vista::devolver_enviar))
+        .route("/conversacion/{id}/olvidar", post(vista::olvidar_enviar))
+        .route("/pedidos", get(vista::pedidos_pagina))
+        .route("/configurar", get(vista::configurar_pagina))
+        .route("/configurar/ajuste", post(vista::guardar_ajuste))
+        .route("/configurar/pregunta", post(vista::crear_pregunta))
+        .route("/configurar/pregunta/{id}/activar", post(vista::activar_pregunta))
+        .route("/configurar/consulta/{id}/activar", post(vista::activar_consulta))
+        .route("/configurar/documento/{id}/activar", post(vista::activar_documento))
+        .route("/configurar/flujo", post(vista::guardar_flujo))
+        .route("/configurar/flujo/{id}/activar", post(vista::activar_flujo))
+        .route("/configurar/flujo/{id}/borrar", post(vista::borrar_flujo))
+        // Recursos estáticos: vendorizados y servidos LOCALES (nunca CDN).
+        .route("/htmx.min.js", get(vista::htmx_js))
+        .route("/boi.js", get(vista::boi_js))
+        .route("/comportamientos.js", get(vista::comportamientos_js))
+        .route("/panel.css", get(vista::css))
+        .fallback(|| async { (StatusCode::NOT_FOUND, "no encontrado") })
         // Sobre TODO lo anterior, incluido el comodín y el webhook: una capa
         // puesta sobre un subconjunto de rutas es una que alguien olvidará al
         // añadir la siguiente.
@@ -213,33 +206,7 @@ pub fn router(servicio: Servicio) -> Router {
         .with_state(servicio)
 }
 
-#[cfg(test)]
-mod pruebas {
-    use super::*;
-
-    #[test]
-    fn el_index_empotrado_no_lleva_script_en_linea() {
-        // La salvaguarda del apagado de `inlineCritical`. Si vuelve a colarse un
-        // manejador en línea, la CSP lo bloquea y el panel se ve sin estilos SIN
-        // dar ningún error — el fallo que aparece el día de la demostración.
-        // Se lee el archivo EMPOTRADO y no el del disco: es lo que se sirve.
-        let indice = Interfaz::get("index.html").expect("la interfaz tiene que estar construida");
-        let html = String::from_utf8_lossy(&indice.data);
-
-        assert!(
-            !html.contains("onload="),
-            "el index empotrado trae un manejador en línea; la CSP lo bloqueará y el panel \
-             saldrá sin estilos. Compruebe `inlineCritical` en interfaz/angular.json"
-        );
-        assert!(
-            !html.contains("<style"),
-            "el index empotrado trae un <style> en línea; con style-src estricto dejaría de \
-             aplicarse"
-        );
-        assert!(
-            !html.contains("http://") && !html.contains("https://"),
-            "el index empotrado sale a un recurso externo: la CSP lo bloquea, y además rompe \
-             la promesa de que la instalación funciona sin salir a internet"
-        );
-    }
-}
+// La invariante «la CSP estricta no rompe el panel» (ningún script en línea,
+// ningún recurso externo) se prueba ahora sobre la salida de maud, en
+// `vista::pruebas::la_envoltura_no_lleva_script_en_linea_ni_recurso_externo` —
+// donde vive la función que teje ese HTML.

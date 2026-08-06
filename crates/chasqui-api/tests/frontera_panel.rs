@@ -206,22 +206,26 @@ fn textos(bitacora: &Bitacora) -> Vec<String> {
 
 #[tokio::test]
 async fn el_panel_se_sirve_desde_el_binario() {
-    // La prueba que distingue «hay un rust-embed en el código» de «la interfaz
-    // está construida y empotrada». Sin ella, el panel puede estar vacío y
-    // ninguna prueba de Rust lo notaría.
+    // La prueba que distingue «el módulo compila» de «el panel se sirve de
+    // verdad». El panel lo teje maud EN EL SERVIDOR (ya no es un SPA de Angular
+    // empotrado). Sin sesión, cualquier ruta protegida redirige a /entrar, que es
+    // una página real tejida por maud.
     let (graph, _) = graph_falso().await;
-    let instancia = instancia("estatico", &graph).await;
+    let instancia = instancia("panel", &graph).await;
 
+    // GET / sin sesión → /cola → /entrar (login). reqwest sigue los redirects:
+    // acabamos en la página de entrada.
     let r = reqwest::get(format!("{}/", instancia.base)).await.unwrap();
     assert_eq!(r.status(), 200);
     let html = r.text().await.unwrap();
-    assert!(html.contains("<app-root"), "la raíz no sirve la aplicación Angular: {html:.200}");
+    assert!(html.contains("Chasqui"), "la raíz no sirve el panel: {html:.200}");
+    assert!(html.contains("/htmx.min.js"), "el panel no carga htmx vendorizado");
+    assert!(!html.contains("<app-root"), "quedó un resto del SPA de Angular");
 
-    // Y una ruta del navegador tiene que caer en el índice: si diera 404,
-    // recargar la página en /cola rompería el panel.
-    let recarga = reqwest::get(format!("{}/cola", instancia.base)).await.unwrap();
-    assert_eq!(recarga.status(), 200);
-    assert!(recarga.text().await.unwrap().contains("<app-root"));
+    // htmx se sirve LOCAL desde el binario, nunca desde un CDN.
+    let htmx = reqwest::get(format!("{}/htmx.min.js", instancia.base)).await.unwrap();
+    assert_eq!(htmx.status(), 200);
+    assert!(htmx.text().await.unwrap().contains("htmx"), "no se sirve htmx local");
 }
 
 #[tokio::test]
