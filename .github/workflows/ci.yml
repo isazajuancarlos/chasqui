@@ -45,7 +45,13 @@ permissions:
 jobs:
   rust:
     name: test + clippy
-    runs-on: ubuntu-latest
+    # Al VPS: 6 nucleos (acotado a 4 por systemd) contra los 2 vCPU del runner
+    # gratis de un repo PRIVADO. Medido el 2026-08-05, este job es compilacion
+    # pura y CPU-bound —clippy 5,2 min + test 4,3 min, de los que solo 20 s son
+    # EJECUTAR pruebas—, asi que lo unico que lo mueve son nucleos.
+    # Seguro porque chasqui es PRIVADO: en un repo publico un PR desde un fork
+    # ejecutaria codigo arbitrario en la maquina de produccion.
+    runs-on: [self-hosted, vps]
     # El techo, no la duración esperada: sin él un CI que se degrada de 4 a 48
     # minutos sale verde igual. 30 y no los 20 del estándar porque este job
     # lleva 11 minutos ESTABLES (medido sobre las 5 últimas corridas, por job y
