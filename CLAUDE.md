@@ -99,15 +99,30 @@ una vista es editar `src/vista.rs` y recompilar; no hay `dist/` que reconstruir.
 - La suite entera tarda **un par de minutos en debug y no está colgada**: casi
   todo es `chasqui-datos`, donde cada contraseña pasa por Argon2 y en debug eso
   va más de diez veces más lento que en release.
-- Si se cambia la interfaz **hay que reconstruirla y volver a compilar**: lo
-  empotrado es `dist/`, no `src/`. `build.rs` observa esa carpeta, y si no está
-  empotra una página que dice qué ejecutar — nunca una en blanco.
+- **La pantalla se prueba DIBUJÁNDOLA, en `tests/frontera_panel.rs`.** Las otras
+  20 pruebas de ese archivo le hablan al binario por HTTP y afirman sobre el
+  texto que devuelve axum: eso mide el CÓDEC, no el producto. Con maud+htmx la
+  pantalla la termina el navegador —los `hx-swap` los ejecuta JavaScript—, y un
+  `<script type="module">` bloqueado por la CSP, servido con el MIME equivocado
+  o que revienta al importar **devuelve el mismo 200 con el mismo cuerpo**. Las
+  dos pruebas `…se_dibuja…` levantan el binario y lo pintan en Chromium
+  headless (`--dump-dom`), y afirman sobre el DOM montado.
+  - La afirmación que no se puede hacer sobre el HTML de axum es
+    `data-boi="listo"` en el `<html>`: lo pone `boi` al engancharse, así que solo
+    aparece si el navegador descargó el módulo, lo aceptó bajo `script-src
+    'self'`, lo parseó y lo ejecutó.
+  - Van con su **pareja** (directiva 33): la caja de demostración NO puede salir
+    sin `demo.credenciales` y SÍ tiene que salir con él — sin las dos mitades, un
+    DOM en blanco pasaría igual.
+  - Validadas contra su mutante en el ARTEFACTO (`throw` al principio de
+    `estaticos/boi.js`): las dos se ponen rojas. **Límite conocido**: un fallo
+    posterior a `enganchar` no se detecta, porque la marca ya está puesta.
+  - Si no hay Chromium, **fallan ruidosamente**; no se saltan solas. `CHROMIUM`
+    fuerza la ruta.
 - `./probar-con-meta.sh` levanta el binario tras un túnel público de Cloudflare y
   comprueba el apretón de manos con la consola de Meta (alta del webhook, reto,
   firma HMAC sobreviviendo a un proxy). Crea su propia base temporal y la borra.
   Lo que falta después está en `docs/META.md`.
-- `interfaz/npm test` está cableado a vitest pero **hoy no hay ni un `.spec.ts`**:
-  correrlo da cero pruebas, que no es lo mismo que verde.
 - **`/security-review` YA ARRANCA aquí.** Hasta el 2026-08-05 no lo hacía, y no
   era un fallo suyo: construye su diff con `git diff origin/HEAD…` y este
   repositorio **no tenía remoto ni rama `main`**, así que no existía base contra
@@ -122,7 +137,7 @@ una vista es editar `src/vista.rs` y recompilar; no hay `dist/` que reconstruir.
 
   (Aquella nota decía «el día que exista `main`, esto se arregla solo». Existe.)
 
-## El CI — cuatro trabajos, y por qué son cuatro
+## El CI — TRES trabajos desde el 2026-08-06 (eran cuatro)
 
 `.github/workflows/ci.yml`, desde el **2026-08-05**. Antes de esa fecha chasqui
 no tenía remoto ni CI, y eso no era una decisión: **`cargo clippy -D warnings` no
@@ -136,7 +151,6 @@ errores—. Las 410 pruebas pasaban, o sea que el repositorio parecía sano por 
 | `test + clippy` | `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace --no-fail-fast` |
 | `cargo-audit (RustSec)` | `cargo audit` (el único *ignore* vive en `.cargo/audit.toml`) |
 | `cargo-deny (supply chain)` | `cargo deny check` (config en `deny.toml`) |
-| `interfaz (ng build)` | `npm ci && npm run build` en `interfaz/` |
 
 Para reproducir el verde en local se copian **esos** comandos, no unos parecidos.
 Tres cosas que no son opcionales y ya costaron algo:
@@ -145,11 +159,15 @@ Tres cosas que no son opcionales y ya costaron algo:
   exactamente donde estaban los nueve avisos de la primera capa.
 - **`--no-fail-fast`**: sin él `cargo test` aborta en el primer binario que falla
   y las pruebas de los otros crates no llegan a ejecutarse.
-- **El trabajo `interfaz` existe porque `cargo test` NO cubre el frontal.** Lo que
-  se empotra es `dist/`, y en debug `build.rs` lo sustituye por una página de
-  aviso: romper la interfaz salía verde hasta que alguien construyera el release.
-  **`npm test` no se corre a propósito** — está cableado a vitest y no hay ni un
-  `.spec.ts`, así que daría cero pruebas, y cero no es verde, es nada.
+- **El cuarto trabajo, `interfaz (ng build)`, se retiró con la migración a
+  maud+htmx**: ya no hay `npm`, ni `dist/`, ni `build.rs` que empotrar. Pero
+  existía por una razón que NO desapareció con Angular — «`cargo test` no cubre
+  el frontal»—, y quitarlo sin más habría dejado el hueco abierto: con maud el
+  HTML lo compila `rustc`, pero **el navegador sigue haciendo falta** para los
+  `hx-swap` y para los módulos de `boi`. Lo que sustituye a aquel trabajo no es
+  otro job, son **las dos pruebas que dibujan la pantalla en Chromium** dentro
+  de `test + clippy` (ver «Construir y probar»). Sin ellas, el CI habría pasado
+  de tres capas de verde a dos sin que nada lo dijera.
 
 **El `ignore` de `cargo-audit` es uno y está medido**, no copiado de otro
 repositorio: RUSTSEC-2023-0071 (Marvin, `rsa` 0.9.x). `rsa` figura en el

@@ -1210,3 +1210,149 @@ async fn los_flujos_y_los_pedidos_no_se_ven_sin_sesion() {
         assert_eq!(r.status(), 401, "«{metodo} {ruta}» contestó sin sesión");
     }
 }
+
+// --- La pantalla DIBUJADA: lo único que mide el producto y no el códec ---
+//
+// Todo lo de arriba le habla al binario por HTTP y afirma sobre el texto que
+// devuelve axum. Eso mide el CÓDEC. Desde que el panel es `maud` + htmx, la
+// pantalla la termina de construir el navegador: los `hx-swap` los ejecuta
+// JavaScript, y un `<script type="module">` que la CSP bloquee, que llegue con
+// el MIME equivocado o que reviente al importar **devuelve exactamente el mismo
+// 200 con el mismo cuerpo**. Las 412 pruebas seguirían verdes con `boi` muerto y
+// los dos comportamientos del panel —la confirmación de doble pulsación y el
+// autoscroll del chat— sin ejecutarse nunca.
+//
+// Este arnés —levantar el binario real, dibujar en Chromium, afirmar sobre el
+// DOM montado— es el mismo que estrenó `nexus` (`tests/panel_e2e.rs`) y el
+// segundo uso que la directiva 9 señala para extraerlo a pieza común.
+
+/// Localiza Chromium. Si no está, **falla ruidosamente**: un E2E que se salta
+/// solo es indistinguible de uno que pasa (directivas 30 y 33), y este existe
+/// justamente para cruzar la frontera del navegador. `CHROMIUM` lo fuerza.
+fn buscar_chromium() -> String {
+    if let Ok(p) = std::env::var("CHROMIUM") {
+        return p;
+    }
+    for c in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"] {
+        if let Ok(out) = Command::new("sh").arg("-c").arg(format!("command -v {c}")).output()
+            && out.status.success()
+        {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() {
+                return p;
+            }
+        }
+    }
+    panic!(
+        "no se encontró Chromium: este E2E DIBUJA la pantalla y no puede saltarse sin \
+         dejar de medir (directiva 28). Instala chromium o exporta CHROMIUM=/ruta."
+    );
+}
+
+/// Pinta `url` en Chromium headless y devuelve el DOM ya construido, después de
+/// que el JavaScript de la página haya corrido. `--virtual-time-budget` deja
+/// terminar las tareas asíncronas. Ésta es la costura reutilizable del arnés.
+fn dibujar(chromium: &str, url: &str) -> String {
+    // Un perfil ÚNICO por llamada. Con un nombre derivado de la URL, dos pruebas
+    // en paralelo pueden coincidir —pasó: Chromium aborta con «Failed to create
+    // SingletonLock» y se lleva la prueba por delante—. `cargo test` corre en
+    // hilos, así que el contador es lo que garantiza que no se pisen.
+    static SIGUIENTE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SIGUIENTE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let perfil = std::env::temp_dir().join(format!("chasqui-perfil-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&perfil);
+    let salida = Command::new(chromium)
+        .args([
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            &format!("--user-data-dir={}", perfil.display()),
+            "--virtual-time-budget=4000",
+            "--dump-dom",
+            url,
+        ])
+        .output()
+        .expect("Chromium no arrancó");
+    let _ = std::fs::remove_dir_all(&perfil);
+    assert!(
+        salida.status.success(),
+        "Chromium salió con error: {}",
+        String::from_utf8_lossy(&salida.stderr)
+    );
+    String::from_utf8_lossy(&salida.stdout).into_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_pantalla_de_entrada_se_dibuja_y_boi_se_engancha_de_verdad() {
+    let chromium = buscar_chromium();
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("navegador", &graph).await;
+
+    let dom = dibujar(&chromium, &format!("{}/entrar", instancia.base));
+
+    // Lo que el navegador montó: la caja de entrada existe de verdad.
+    assert!(dom.contains("Chasqui"), "la pantalla no se dibujó: {dom:.300}");
+    assert!(dom.contains(r#"id="correo""#), "no se dibujó el campo de correo");
+    assert!(dom.contains(r#"id="clave""#), "no se dibujó el campo de contraseña");
+    assert!(dom.contains("Entrar"), "no se dibujó el botón de entrar");
+
+    // LA AFIRMACIÓN QUE NO SE PUEDE HACER SOBRE EL HTML DE axum: `boi` viaja como
+    // `<script type="module">`, y sólo deja `data-boi="listo"` en el <html> si el
+    // navegador lo descargó, lo aceptó bajo la CSP (`script-src 'self'`), lo
+    // parseó como módulo y ejecutó `enganchar`. En el cuerpo que sirve axum ese
+    // atributo NO está — lo pone el JavaScript al correr.
+    // Validado con su mutante, sobre el ARTEFACTO que sirve el binario y no sobre
+    // el arnés: con un `throw` al principio de `estaticos/boi.js` las DOS pruebas
+    // se ponen rojas (y `Compiling` confirma que el mutante entró de verdad).
+    //
+    // LÍMITE, y lo escribe aquí el primer intento de mutante, que SOBREVIVIÓ: un
+    // fallo POSTERIOR a `enganchar` no se detecta, porque la marca ya está puesta.
+    // Esto mide «boi llegó a engancharse», que es el modo de fallo real —CSP,
+    // MIME, error al importar—, no «boi.js entero corrió sin un error».
+    assert!(
+        dom.contains(r#"data-boi="listo""#),
+        "boi no se enganchó en el navegador: el módulo está en el HTML pero no llegó a \
+         ejecutarse (CSP, MIME o un error al importar). Los comportamientos del panel \
+         —confirmar-doble y autoscroll— estarían muertos y ninguna otra prueba lo vería."
+    );
+
+    // Y no quedó ningún resto del SPA que se retiró.
+    assert!(!dom.contains("<app-root"), "quedó un resto del Angular anterior");
+
+    // ── Negativo de control (directiva 33) ──
+    // Sin `demo.credenciales`, la caja de demostración NO puede aparecer. Su
+    // pareja —el caso que SÍ tiene que verla— es la prueba siguiente: sin las
+    // dos, un DOM que dijera siempre lo mismo pasaría igual.
+    assert!(
+        !dom.contains("Demostración abierta"),
+        "salió la caja de demostración sin haber configurado credenciales"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn el_navegador_dibuja_la_caja_de_demostracion_cuando_el_ajuste_existe() {
+    // La pareja del control anterior, y lo que la convierte en medición: el DOM
+    // dibujado cambia CON EL ESTADO DEL SERVIDOR. Sin esta mitad, el `!contains`
+    // de arriba pasaría igual con una pantalla en blanco.
+    let chromium = buscar_chromium();
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("navegador-demo", &graph).await;
+
+    let puesto = instancia
+        .orden()
+        .args(["ajuste", "poner", "demo.credenciales", "ana@acme.com\nuna-clave-de-demo"])
+        .output()
+        .unwrap();
+    assert!(puesto.status.success(), "no se pudo poner el ajuste: {puesto:?}");
+
+    let dom = dibujar(&chromium, &format!("{}/entrar", instancia.base));
+
+    assert!(
+        dom.contains("Demostración abierta"),
+        "el ajuste está puesto y la caja no se dibujó: {dom:.300}"
+    );
+    assert!(dom.contains("ana@acme.com"), "la caja salió sin el correo de demostración");
+    // Y boi sigue enganchándose en esta pantalla también.
+    assert!(dom.contains(r#"data-boi="listo""#), "boi no se enganchó con la caja de demo");
+}

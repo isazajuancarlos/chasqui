@@ -85,6 +85,19 @@ export function enganchar(doc) {
     const nodo = e && e.detail && e.detail.elt ? e.detail.elt : doc.body;
     escanear(nodo);
   });
+  // DEJA RASTRO EN EL DOM. No es adorno: es lo único que un E2E puede mirar para
+  // distinguir «boi cargó y se enganchó» de «el <script type=module> está en el
+  // HTML y el navegador no lo ejecutó» —un módulo que la CSP bloquea, que llega
+  // con el MIME equivocado o que revienta al importar falla EN SILENCIO, y el
+  // servidor devuelve exactamente el mismo 200 con el mismo cuerpo.
+  //
+  // Una página sin ningún `data-*` de comportamiento no produce ninguna otra
+  // marca, así que sin esto el caso más común —la pantalla de entrada— no se
+  // puede comprobar en absoluto. Va en el núcleo y no en cada proyecto porque el
+  // problema es de la librería, no de quien la usa (directiva 9).
+  if (doc.documentElement && typeof doc.documentElement.setAttribute === "function") {
+    doc.documentElement.setAttribute("data-boi", "listo");
+  }
 }
 
 // En un navegador de verdad: publicar el núcleo en `globalThis.boi` (para que un

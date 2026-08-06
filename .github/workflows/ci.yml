@@ -72,6 +72,30 @@ jobs:
       # primera capa.
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # EL NAVEGADOR ES UNA DEPENDENCIA DEL BANCO, así que se declara y se
+      # comprueba ANTES de correrlo. Dos pruebas de `frontera_panel` dibujan la
+      # pantalla en Chromium headless: es lo único que distingue «maud devolvió
+      # el HTML correcto» de «la pantalla se ve», porque con htmx un módulo que
+      # la CSP bloquea devuelve el mismo 200 con el mismo cuerpo.
+      #
+      # Se resuelve aquí y se pasa por `CHROMIUM` en vez de dejar que el test lo
+      # busque: si el runner cambia de imagen y deja de traer navegador, este
+      # paso falla diciendo QUÉ falta, en lugar de un `panic` dentro de una
+      # prueba. El test también falla ruidoso si no lo encuentra —nunca se salta
+      # solo (directiva 30)—, pero un fallo que explica el arreglo vale más.
+      - name: navegador para el E2E
+        run: |
+          for c in google-chrome google-chrome-stable chromium chromium-browser; do
+            if ruta=$(command -v "$c"); then
+              echo "CHROMIUM=$ruta" >> "$GITHUB_ENV"
+              break                      # el primero que haya, no el último
+            fi
+          done
+          if ! grep -q CHROMIUM "$GITHUB_ENV"; then
+            echo "::error::no hay navegador en el runner y el E2E del panel lo necesita"
+            exit 1
+          fi
+          grep CHROMIUM "$GITHUB_ENV"
       # `--no-fail-fast` NO es opcional: sin él, cargo test aborta en el primer
       # binario que falla y las pruebas de los otros crates no llegan a
       # ejecutarse — un rojo que además esconde el estado del resto.
