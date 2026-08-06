@@ -29,7 +29,12 @@ on:
 # NO se cancela: cada commit de esa rama es un estado publicado y su resultado
 # tiene que quedar registrado.
 concurrency:
-  group: ci-${{ github.ref }}
+  # El `-{sha}` en `main` NO es adorno: `cancel-in-progress: false` solo salva a
+  # la corrida EN CURSO — GitHub cancela las ENCOLADAS del mismo grupo. Con dos
+  # merges dentro de una ventana de CI, el commit de en medio no se medía jamás
+  # y la rama se veía verde por la corrida siguiente. Dándole a cada commit su
+  # propio grupo, la promesa del comentario de arriba se cumple de verdad.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -41,6 +46,13 @@ jobs:
   rust:
     name: test + clippy
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se degrada de 4 a 48
+    # minutos sale verde igual. 30 y no los 20 del estándar porque este job
+    # lleva 11 minutos ESTABLES (medido sobre las 5 últimas corridas, por job y
+    # no por workflow): 20 dejaría 1,8x de margen y saltaría por operación
+    # normal, que es la alarma que a la tercera nadie mira (directiva 21). Baja
+    # a 20 cuando se mida el efecto del `opt-level` de las dependencias.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
@@ -80,6 +92,9 @@ jobs:
   auditoria-deps:
     name: cargo-audit (RustSec)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -93,6 +108,9 @@ jobs:
   cadena-suministro:
     name: cargo-deny (supply chain)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
