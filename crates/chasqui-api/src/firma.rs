@@ -16,7 +16,7 @@
 //!    cuanto encuentra el primer byte distinto, y esa diferencia de tiempo deja
 //!    adivinar la firma byte a byte sin conocer el secreto.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -101,6 +101,35 @@ mod pruebas {
 
     const SECRETO: &str = "el-secreto-de-la-app-de-meta";
     const CUERPO: &[u8] = br#"{"object":"whatsapp_business_account","entry":[]}"#;
+
+    /// **EL VECTOR FIJO, y aquí el formato NO lo elegimos nosotros.**
+    ///
+    /// En producción quien firma es **Meta**, y nosotros solo verificamos. Todas
+    /// las demás pruebas de este módulo firman Y verifican con el MISMO binario,
+    /// así que miden el códec contra sí mismo: pasarían igual si cambiara el
+    /// prefijo, la codificación hexadecimal o el motor de `hmac`/`sha2` — y con
+    /// cualquiera de esas cosas **se rechazarían TODOS los webhooks legítimos**,
+    /// en silencio y sin un solo error en rojo. El síntoma sería «dejaron de
+    /// llegar mensajes», que es lo último donde se mira.
+    ///
+    /// Medido el 2026-08-06 con hmac 0.12 / sha2 0.10, y comprobado idéntico con
+    /// hmac 0.13 / sha2 0.11.
+    ///
+    /// Si se pone roja, **NO se regenera el literal**: significa que dejamos de
+    /// hablar el idioma de Meta.
+    const FIRMA_DE_META_2026: &str =
+        "sha256=031381684b2c3e37810471ba79fa51591483aa9f2d2126edf6bf14d05b24f309";
+
+    #[test]
+    fn la_firma_de_meta_sigue_siendo_byte_a_byte_la_misma() {
+        assert_eq!(
+            firmar(CUERPO, SECRETO),
+            FIRMA_DE_META_2026,
+            "cambió el formato de la firma HMAC. En producción quien firma es \
+             Meta: con esto movido, `verificar` rechaza todos los webhooks \
+             legítimos y dejan de llegar mensajes sin que nada falle"
+        );
+    }
 
     #[test]
     fn una_firma_correcta_pasa() {
@@ -188,3 +217,4 @@ mod pruebas {
         assert!(iguales_en_tiempo_constante("", ""));
     }
 }
+
