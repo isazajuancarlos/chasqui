@@ -25,7 +25,7 @@ use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use chasqui_datos::usuario::{self, Usuario};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 use crate::servicio::Servicio;
@@ -142,6 +142,37 @@ pub fn origen(partes: &axum::http::HeaderMap) -> String {
 mod pruebas {
     use super::*;
 
+    /// La frase de despliegue y la clave que sale de ella, medidas el 2026-08-06
+    /// con hmac 0.12 / sha2 0.10 y comprobadas idénticas con hmac 0.13 / sha2
+    /// 0.11.
+    const FRASE_2026: &str = "frase-de-despliegue-de-prueba-2026";
+    const SECRETO_2026: &str =
+        "2dbae8152ef56f8a10bc3411d47d6b88d4c386a038de53eee5c1419755e29e0a";
+
+    /// **EL VECTOR FIJO de la clave de sesión.**
+    ///
+    /// `secreto_de` deriva con HMAC-SHA256 la clave con la que se firman TODAS
+    /// las cookies. Las demás pruebas de este módulo derivan y verifican con el
+    /// MISMO binario, así que pasarían igual si cambiara el dominio de
+    /// separación, el orden de las operaciones o el motor de `hmac`/`sha2`.
+    ///
+    /// Y si esa clave cambia, **la sesión de todo el mundo se cierra a la vez**:
+    /// el token sigue bien formado, pero se verifica contra otra clave. El token
+    /// en sí lo emite `guaca::sesion`, que YA tiene su propio vector
+    /// (`TOKEN_2026`); lo que faltaba era este lado, que es el nuestro.
+    ///
+    /// Si se pone roja, NO se regenera el literal sin decidir qué pasa con las
+    /// sesiones vivas.
+    #[test]
+    fn la_clave_de_sesion_de_2026_sigue_saliendo_igual() {
+        let hex: String = secreto_de(FRASE_2026).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex, SECRETO_2026,
+            "cambió la derivación de la clave de sesión: los tokens vivos dejan \
+             de verificar y se cierran todas las sesiones a la vez"
+        );
+    }
+
     #[test]
     fn la_clave_de_sesion_no_es_la_frase() {
         // Si lo fuera, un token de sesión filtrado sería la frase con la que se
@@ -227,3 +258,4 @@ mod pruebas {
         assert_eq!(origen(&cabeceras), "10.0.0.7");
     }
 }
+

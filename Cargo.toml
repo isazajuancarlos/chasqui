@@ -45,8 +45,8 @@ reqwest = { version = "0.12", default-features = false, features = [
 # conversación, y un PRNG con estado predecible deja leer la de otro visitante.
 getrandom = "0.4"
 # Firma del webhook de Meta (X-Hub-Signature-256) y comparación en tiempo constante.
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hex = "0.4"
 # Cifrado en reposo de las credenciales del cliente (token de Meta, clave del
 # modelo). Fijado por commit inmutable, no por tag: un tag es mutable y moverlo a
