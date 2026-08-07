@@ -2,42 +2,21 @@
 //
 // Los comportamientos de cliente de Chasqui, sobre boi. Cada uno se marca con un
 // `data-*` en el HTML que teje maud; boi los aplica al cargar y tras cada swap de
-// htmx. Son los PRIMEROS comportamientos reales de boi: nacieron aquí porque el
-// panel de chasqui los pidió de verdad, no por especulación (directiva 9).
+// htmx. Nacieron aquí porque el panel de chasqui los pidió de verdad, no por
+// especulación (directiva 9).
+//
+// **`confirmar-doble` YA NO ESTÁ AQUÍ** (2026-08-07). Lo estrenó este panel,
+// informes lo copió y medico iba a ser la tercera copia, así que subió a
+// `/mnt/data/boi` como comportamiento compartido y aquí se vendoriza igual que
+// `boi.js` — se sirve en `/comportamientos/confirmar-doble.js`. Al unificarlo
+// salió un defecto que la copia de aquí tenía: cortaba con `stopPropagation()`,
+// que NO detiene a los demás oyentes del mismo nodo, y htmx registra el suyo
+// justo ahí.
+//
+// Lo que queda abajo es lo que sigue siendo SOLO de chasqui: un comportamiento
+// que usa un proyecto no sube a la librería (directiva 9 en su otra dirección).
 
 import { registrar } from "./boi.js";
-
-// Confirmación de doble pulsación para acciones irreversibles. Dos pulsaciones y
-// no un `confirm()` del navegador: el borrado no se deshace y el diálogo nativo
-// se acepta sin leerlo. El texto de aviso viaja en `data-confirmar`.
-//   <button data-confirmar="¿Seguro? Pulse otra vez" hx-post="…">Olvidar…</button>
-registrar("confirmar-doble", "[data-confirmar]", (el) => {
-  const normal = el.textContent;
-  const aviso = el.getAttribute("data-confirmar");
-  let armado = false;
-  let reloj = null;
-  el.addEventListener("click", (e) => {
-    if (!armado) {
-      // Primera pulsación: NO deja que htmx dispare todavía.
-      e.preventDefault();
-      e.stopPropagation();
-      armado = true;
-      el.textContent = aviso;
-      el.classList.add("armado");
-      reloj = setTimeout(() => {
-        armado = false;
-        el.textContent = normal;
-        el.classList.remove("armado");
-      }, 5000);
-      return;
-    }
-    // Segunda pulsación dentro de los 5 s: se deja pasar (htmx envía).
-    clearTimeout(reloj);
-    armado = false;
-    el.textContent = normal;
-    el.classList.remove("armado");
-  });
-});
 
 // Lleva un hilo de mensajes al final al cargar y tras cada swap: quien atiende
 // quiere ver lo último, no el saludo de hace una hora. htmx reemplaza el

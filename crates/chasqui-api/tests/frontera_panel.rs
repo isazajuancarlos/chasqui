@@ -228,6 +228,55 @@ async fn el_panel_se_sirve_desde_el_binario() {
     assert!(htmx.text().await.unwrap().contains("htmx"), "no se sirve htmx local");
 }
 
+/// **El comportamiento compartido se sirve y su import resuelve.**
+///
+/// Desde el 2026-08-07 `confirmar-doble` ya no vive en `comportamientos.js`: es
+/// el archivo de `/mnt/data/boi` vendorizado SIN TOCAR, y por eso importa
+/// `from "../boi.js"`. Ese import solo resuelve porque se sirve bajo
+/// `/comportamientos/`.
+///
+/// Servirlo en la raíz —lo "natural", que es donde vivía el anterior— haría que
+/// el módulo reventara al importar **en silencio**: mismo 200, mismo DOM, y
+/// `data-boi="listo"` intacto, porque el núcleo sí carga. La prueba de navegador
+/// que ya existe NO lo vería: mide el núcleo, no el comportamiento. Y el botón
+/// que borra un contacto volvería a actuar a la primera pulsación.
+#[tokio::test]
+async fn el_comportamiento_compartido_se_sirve_y_su_import_resuelve() {
+    let (graph, _) = graph_falso().await;
+    let instancia = instancia("boi-compartido", &graph).await;
+
+    let r = reqwest::get(format!("{}/comportamientos/confirmar-doble.js", instancia.base))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "el comportamiento compartido no se sirve");
+    let js = r.text().await.unwrap();
+    assert!(js.contains("data-confirmar"), "no es el comportamiento esperado");
+    assert!(
+        js.contains(r#"from "../boi.js""#),
+        "no es el archivo del repositorio compartido: le editaron el import"
+    );
+
+    // El destino de ese import EXISTE: es lo que hace válido el módulo.
+    let boi = reqwest::get(format!("{}/boi.js", instancia.base)).await.unwrap();
+    assert_eq!(boi.status(), 200, "`../boi.js` no resuelve: el módulo reventaría al importar");
+
+    // Y la pareja: `comportamientos.js` sigue existiendo con lo PROPIO de
+    // chasqui —el autoscroll del chat—, y ya NO registra `confirmar-doble`. Sin
+    // esta mitad, dos registros del mismo nombre harían que `boi` lanzara y el
+    // segundo módulo no se aplicara.
+    let propios = reqwest::get(format!("{}/comportamientos.js", instancia.base))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(propios.contains("autoscroll"), "se perdió el comportamiento propio de chasqui");
+    assert!(
+        !propios.contains(r#"registrar("confirmar-doble""#),
+        "`confirmar-doble` sigue registrado en los propios Y en el compartido: boi lanza          ante un nombre repetido y el segundo módulo no se aplicaría"
+    );
+}
+
 #[tokio::test]
 async fn toda_respuesta_del_binario_lleva_las_cabeceras_de_seguridad() {
     // Van en la APLICACIÓN y no solo en el nginx de la guía: Chasqui se instala

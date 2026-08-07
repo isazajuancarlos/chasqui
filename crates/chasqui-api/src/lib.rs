@@ -197,6 +197,7 @@ pub fn router(servicio: Servicio) -> Router {
         .route("/htmx.min.js", get(vista::htmx_js))
         .route("/boi.js", get(vista::boi_js))
         .route("/comportamientos.js", get(vista::comportamientos_js))
+        .route("/comportamientos/confirmar-doble.js", get(vista::confirmar_doble_js))
         .route("/panel.css", get(vista::css))
         .fallback(|| async { (StatusCode::NOT_FOUND, "no encontrado") })
         // Sobre TODO lo anterior, incluido el comodín y el webhook: una capa

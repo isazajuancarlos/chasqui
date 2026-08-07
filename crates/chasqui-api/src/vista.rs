@@ -46,6 +46,20 @@ use crate::servicio::Servicio;
 const HTMX_JS: &str = include_str!("../estaticos/htmx.min.js");
 const BOI_JS: &str = include_str!("../estaticos/boi.js");
 const COMPORTAMIENTOS_JS: &str = include_str!("../estaticos/comportamientos.js");
+/// `confirmar-doble`, **byte a byte el de `/mnt/data/boi`**
+/// (`e83cdce283763b9f651d88833878838a`).
+///
+/// Lo estrenó este panel y estaba escrito aquí; informes lo copió y medico iba a
+/// ser la tercera copia, así que subió a la librería compartida (directiva 9). Y
+/// al unificarlo salió un defecto que la copia de aquí tenía: cortaba con
+/// `stopPropagation()`, que por especificación NO detiene a los demás oyentes del
+/// mismo nodo — y htmx registra el suyo justo ahí, así que la confirmación
+/// dependía del orden de registro.
+///
+/// Se sirve bajo `/comportamientos/` porque el archivo importa `from "../boi.js"`
+/// y se vendoriza SIN TOCAR: editarle el import lo dejaría de hacer el mismo
+/// archivo, que es lo que la directiva 26 pide comprobar con `md5sum`.
+const CONFIRMAR_DOBLE_JS: &str = include_str!("../estaticos/comportamientos/confirmar-doble.js");
 const CSS: &str = include_str!("../estaticos/panel.css");
 
 fn recurso(cuerpo: &'static str, tipo: &'static str) -> Response {
@@ -54,6 +68,7 @@ fn recurso(cuerpo: &'static str, tipo: &'static str) -> Response {
 pub async fn htmx_js() -> Response { recurso(HTMX_JS, "application/javascript; charset=utf-8") }
 pub async fn boi_js() -> Response { recurso(BOI_JS, "application/javascript; charset=utf-8") }
 pub async fn comportamientos_js() -> Response { recurso(COMPORTAMIENTOS_JS, "application/javascript; charset=utf-8") }
+pub async fn confirmar_doble_js() -> Response { recurso(CONFIRMAR_DOBLE_JS, "application/javascript; charset=utf-8") }
 pub async fn css() -> Response { recurso(CSS, "text/css; charset=utf-8") }
 
 // ── Sesión para PÁGINAS: sin ella, se redirige a /entrar (no un 401) ────────
@@ -129,6 +144,7 @@ fn envoltura(titulo: &str, yo: Option<&Usuario>, contenido: Markup) -> Markup {
                 script src="/htmx.min.js" {}
                 script type="module" src="/boi.js" {}
                 script type="module" src="/comportamientos.js" {}
+                script type="module" src="/comportamientos/confirmar-doble.js" {}
             }
             body {
                 @if let Some(u) = yo {
