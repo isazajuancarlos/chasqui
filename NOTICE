@@ -1,0 +1,38 @@
+Chasqui — plataforma de atención automatizada multicanal.
+
+Copyright (C) 2026 Juan Carlos Isaza Arenas. Todos los derechos reservados.
+
+SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas
+
+Software PROPIETARIO. Es un proyecto de venta, no una librería de prestigio:
+no se publica el código (directiva 10). Su distribución, copia o modificación
+requieren autorización escrita del titular.
+
+El titular de los derechos es «Juan Carlos Isaza Arenas», persona natural.
+«Xiliux» es una marca de operación comercial y NO es persona jurídica: no
+ostenta ni puede ostentar la titularidad de esta obra.
+
+---
+
+DATOS DE TERCEROS EMPOTRADOS EN EL BINARIO
+
+`crates/chasqui-dominio/datos/ciudades.bin` es una obra derivada de los volcados
+`cities5000` y `admin1CodesASCII` de **GeoNames** (https://www.geonames.org/),
+distribuidos bajo **Creative Commons Attribution 4.0 International (CC BY 4.0)**:
+https://creativecommons.org/licenses/by/4.0/
+
+La atribución es obligatoria y se cumple con esta mención. La licencia CC BY
+permite el uso comercial y no obliga a liberar el software que incorpora los
+datos: no contamina la licencia propietaria de Chasqui, solo exige reconocer la
+fuente.
+
+Los nombres de país en castellano provienen del proyecto **iso-codes**
+(https://salsa.debian.org/iso-codes-team/iso-codes), distribuido bajo **LGPL-2.1
+o posterior**. Se usan únicamente sus DATOS —cadenas de texto traducidas—, no su
+código; los datos así extraídos no imponen obligaciones de copyleft sobre este
+programa.
+
+Para qué están: traducir unas coordenadas a «municipio, departamento, país»
+DENTRO del servidor del cliente. La alternativa —preguntárselo a un servicio de
+mapas— enviaría la ubicación exacta de los clientes del cliente a un tercero en
+cada consulta.
