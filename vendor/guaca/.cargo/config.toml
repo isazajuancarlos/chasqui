@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# TODAS las dependencias salen de `vendor/`, que está DENTRO del repositorio.
+# No se descarga nada: ni el índice de crates.io, ni un solo `.crate`.
+#
+# El positivo de control NO es `cargo build --offline`, que solo prueba que no
+# salió a la red pudiendo estar tirando de la caché de `~/.cargo`. Lo que
+# discrimina es la caché VACÍA:
+#
+#     CARGO_HOME=$(mktemp -d) cargo build --offline
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# POR QUÉ — decisión de Juan, 2026-08-14
+# ─────────────────────────────────────────────────────────────────────────────
+# «No podemos depender de herramientas online hasta saber que todo es seguro, y
+# eso va a tardar.» El protocolo «solo local» del 2026-08-10 sacó el CÓDIGO de
+# los registros públicos; esto saca la CONSTRUCCIÓN. Mientras el árbol se
+# resolviera contra crates.io, un registro comprometido —Shai-Hulud, ChainDrop—
+# entraba por el build aunque nuestro código no estuviera publicado en ninguna
+# parte.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Y AQUÍ ARREGLA ADEMÁS UN DEFECTO QUE ROMPÍA A LOS CONSUMIDORES NUEVOS
+# ─────────────────────────────────────────────────────────────────────────────
+# guaca declara `quipu = "0.11"` contra crates.io, y el 2026-08-10 yankeamos
+# NOSOTROS esas versiones. Cargo se niega a elegir una yankeada en una resolución
+# NUEVA, así que **ningún repositorio nuevo que dependiera de guaca compilaba** —
+# lo descubrió `chunsua` el 2026-08-14, cuatro días después y por casualidad.
+#
+# Los cuatro consumidores existentes (medico, informes, tunjo, chasqui) no se
+# enteraron porque llevan su `Cargo.lock` con la versión ya fijada: resuelven sin
+# tocar el índice. O sea que la cadena llevaba días rota y todo salía verde.
+#
+# Con el árbol vendorizado, cargo ni consulta el índice ni mira el estado de
+# yank. El defecto desaparece por construcción en vez de taparse con un parche
+# en cada consumidor (directiva 1).
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# QUE ESTO NO CAMBIA LO QUE SE COMPILA NO ES UNA OPINIÓN
+# ─────────────────────────────────────────────────────────────────────────────
+# `Cargo.lock` no se toca —mismas versiones— y cada crate de `vendor/` lleva su
+# `.cargo-checksum.json`, que cargo verifica contra el hash publicado. Si un solo
+# byte difiriera de lo que se compilaba antes, el build se para con `the listed
+# checksum of ... has changed`. La entrada de `rustc` es idéntica por
+# construcción, no por inferencia.
+#
+# El aviso: esa verificación es PEREZOSA — salta al compilar el crate, no en cada
+# build. Con el `target/` caliente, un árbol ya manipulado puede pasar
+# inadvertido. Un clon nuevo o `cargo clean -p` lo cazan siempre.
+#
+# Rutas RELATIVAS a propósito: `cargo vendor` las escribe absolutas, y eso ata el
+# repositorio a esta máquina — un clon en otro sitio dejaría de compilar sin
+# decir por qué.
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+file:///home/juan/espejos/quipu.git?rev=e416f302a8131960e2e41c624f97cd60fdbbcd7f"]
+git = "file:///home/juan/espejos/quipu.git"
+rev = "e416f302a8131960e2e41c624f97cd60fdbbcd7f"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

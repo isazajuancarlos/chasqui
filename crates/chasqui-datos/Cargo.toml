@@ -1,0 +1,27 @@
+[package]
+name = "chasqui-datos"
+description = "La base de Chasqui: SQLite, credenciales cifradas y las consultas."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chasqui-dominio = { path = "../chasqui-dominio" }
+# Lo recogido de un flujo y los campos de un pedido viajan en JSON dentro de una
+# columna: son una lista de pares que crece con lo que el cliente configure, y
+# una tabla por campo sería un esquema que cambia cada vez que añade un paso.
+serde_json = { workspace = true }
+guaca = { workspace = true }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

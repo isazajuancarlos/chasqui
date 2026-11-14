@@ -1,0 +1,9 @@
+guaca
+Copyright (c) 2026 Juan Carlos Isaza
+
+Este producto se distribuye bajo la licencia AGPL-3.0-or-later; hay licencia
+comercial disponible (misma política de doble licencia que Quipu, del cual guaca
+es una fachada). El titular de los derechos patrimoniales es Isaza Arenas;
+«Xiliux» es una marca de producto, no una persona jurídica.
+
+guaca no reimplementa criptografía: envuelve Quipu (https://crates.io/crates/quipu).

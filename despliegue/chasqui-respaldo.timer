@@ -1,0 +1,17 @@
+; SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas
+; Copyright (c) 2026 Juan Carlos Isaza
+[Unit]
+Description=Chasqui — dispara el respaldo diario
+
+[Timer]
+OnCalendar=daily
+; Si la máquina estaba apagada a la hora, el respaldo se hace al encender. Sin
+; esto, un servidor que se apaga por la noche —que es medio comercio— no se
+; respalda nunca y nadie lo nota.
+Persistent=true
+; Un poco de azar para no coincidir con todo lo demás que corre a medianoche.
+RandomizedDelaySec=30m
+Unit=chasqui-respaldo.service
+
+[Install]
+WantedBy=timers.target

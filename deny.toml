@@ -1,0 +1,99 @@
+# cargo-deny — control de cadena de suministro (lección Atomic Arch).
+# Complementa a cargo-audit: además de CVEs conocidos, exige que TODA dependencia
+# venga de una fuente autorizada, prohíbe comodines de versión y controla
+# licencias.
+#
+# Nace el 2026-08-05, con el CI. Hasta ese día chasqui no tenía ninguno de los
+# dos, y no porque se decidiera correr el riesgo: el instrumento no existía.
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+# Allowlist AJUSTADA al árbol real (directiva 23): una licencia NUEVA en una
+# subida = rojo, y se decide a mano si entra. No se pre-aprueban licencias
+# ausentes «por si acaso» — eso convierte el guardián en un sello.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    # `webpki-roots`, que entra por `reqwest -> hyper-rustls`: es el almacén de
+    # raíces de certificación de Mozilla. Se licencia así porque son DATOS, no
+    # código —Community Data License Agreement, permisiva—, y su distribución
+    # dentro de un binario propietario está permitida. La añade la primera
+    # corrida de `cargo deny` (2026-08-05), que la rechazó por no estar.
+    "CDLA-Permissive-2.0",
+    # De casa: guaca y quipu son AGPL, con licencia comercial aparte. chasqui es
+    # un producto de VENTA y su propia licencia es propietaria — que un binario
+    # propietario enlace AGPL de la que somos titulares es exactamente para lo
+    # que existe la doble licencia.
+    "AGPL-3.0-or-later",
+    "LicenseRef-Propietario-IsazaArenas",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"   # avisa de versiones duplicadas (superficie + peso)
+wildcards = "deny"           # prohíbe version = "*" en deps EXTERNAS
+allow-wildcard-paths = true  # …pero no en los deps internos por `path` (son nuestros)
+
+[sources]
+# El corazón anti-Atomic-Arch: una dependencia desde una fuente inesperada = rojo.
+unknown-registry = "deny"
+unknown-git = "deny"
+# guaca no está en crates.io y se fija por commit inmutable, nunca por tag.
+# AL ESPEJO, NO A GITHUB (2026-08-11). El protocolo «solo local» movió el origen
+# de verdad a /home/juan/espejos y quitó el remoto de GitHub, pero no tocó los
+# `Cargo.toml`. Eso es historia y explica por qué la URL es un `file://`.
+#
+# **Lo que seguía escrito debajo era FALSO, y se corrige el 2026-08-16**: decía
+# que el rev vive en GitHub como commit huérfano, que «se descarga igual porque
+# GitHub sirve SHA arbitrarios», y que «el día que lo recoja el recolector, esto
+# deja de compilar sin aviso». No puede pasar, por DOS razones independientes:
+# la fuente ya no es GitHub —es el espejo local, que es lo que declara la línea
+# de abajo— y este repositorio construye desde `vendor/`, comprometido en git,
+# con `replace-with = "vendored-sources"` en `.cargo/config.toml`. O sea que la
+# construcción no descarga nada de ninguna parte.
+#
+# Se corrige y no se borra porque el criterio es el mismo que aplica el bloque de
+# quipu: una afirmación falsa en el archivo que declara qué fuentes se aceptan es
+# peor que la excepción que falta — la excepción se ve en rojo, la afirmación no
+# se ve nunca. Lo señaló la revisión de este mismo cambio, que vio el criterio
+# aplicado en guaca y no aquí.
+# `mirilla` entra el 2026-08-13: el arnés de navegador, que hasta ese día vivía
+# COPIADO dentro de `tests/`. Es `dev-dependency` —no viaja en el binario— pero
+# `cargo deny check sources` mira el `Cargo.lock` entero, y hace bien: una
+# dependencia de pruebas ejecuta código en la máquina de quien compila.
+#
+# Lo cazó este mismo comando, corrido por PRIMERA VEZ en este repositorio el día
+# que se añadió (ficha #498, punto 5). Sin él, la fuente nueva habría entrado sin
+# que nadie la aprobara — que es exactamente lo que este gate existe para
+# impedir.
+allow-git = [
+    "file:///home/juan/espejos/guaca.git",
+    "file:///home/juan/espejos/mirilla.git",
+    # quipu faltaba, y por eso `cargo deny check sources` llevaba ROJO en `main`
+    # —cuatro `source-not-allowed`: quipu, quipu-nucleo, quipu-voprf y padme-frame—.
+    #
+    # **La causa tiene fecha y es UNA sola**: el commit del 2026-08-14 «quipu sale
+    # del ESPEJO, no de crates.io» mudó la fuente de quipu en CINCO repositorios de
+    # una pasada —medico, informes, chasqui, guaca y tunjo— y no tocó `allow-git`
+    # en ninguno. **No fue** el protocolo «solo local» del 08-10 ni la mudanza de
+    # guaca del 08-11: esos dos declararon lo que movían. Fue el barrido que movió
+    # una fuente y dejó su puerta sin declarar — comprobado con `git log -S` sobre
+    # el `Cargo.lock` de los cinco, no deducido.
+    #
+    # Medido el 2026-08-16 comparando `Cargo.lock` contra `deny.toml` en los nueve
+    # repositorios que tienen los dos: fallaban esos cinco, y solo esos cinco.
+    #
+    # Es el MISMO espejo local, no una fuente nueva.
+    "file:///home/juan/espejos/quipu.git",
+]

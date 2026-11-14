@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: LicenseRef-Propietario
+#
+# TODAS las dependencias salen de `vendor/`, dentro del repositorio. No se
+# descarga nada: ni el índice de crates.io, ni un `.crate`, ni el espejo de git.
+#
+# El positivo de control NO es `--offline`, que solo prueba que no salió a la red
+# pudiendo tirar de la caché de `~/.cargo`. Lo que discrimina es la caché VACÍA:
+#
+#     CARGO_HOME=$(mktemp -d) cargo build --offline
+#
+# POR QUÉ — decisión de Juan, 2026-08-14: «no podemos depender de herramientas
+# online hasta saber que todo es seguro, y eso va a tardar». El protocolo «solo
+# local» sacó el CÓDIGO de los registros; esto saca la CONSTRUCCIÓN. Un registro
+# comprometido —Shai-Hulud, ChainDrop— entraba por el build aunque nuestro
+# código no estuviera publicado en ninguna parte.
+#
+# Y HAY UN ESLABÓN QUE CARGO NO VERIFICA: comprueba `Cargo.lock` ↔ campo
+# `package` y campo `files` ↔ bytes, pero NO `package` ↔ `files`, y offline no
+# puede. Editar un archivo Y su entrada en `files` compila en silencio. Lo que sí
+# ancla los bytes, y va tras cada re-vendorizado:
+#
+#     CARGO_HOME=$(mktemp -d) cargo vendor "$D" && diff -r --brief vendor "$D"
+#
+# LA CLAVE DE LA FUENTE casa con lo que declara el `Cargo.toml`, no «siempre 40
+# dígitos»: cargo compara por la cadena EXACTA del `Cargo.lock`, y esa cadena
+# copia el `rev` tal como se escribió. Aquí de 40 porque así se declara.
+#
+# Rutas RELATIVAS a propósito: cargo las escribe absolutas y eso ata el
+# repositorio a esta máquina — un clon en otro sitio dejaría de compilar sin
+# decir por qué.
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+file:///home/juan/espejos/guaca.git?rev=d501eb30b5c948ce305051fc45db7ff72f8cff07"]
+git = "file:///home/juan/espejos/guaca.git"
+rev = "d501eb30b5c948ce305051fc45db7ff72f8cff07"
+replace-with = "vendored-sources"
+
+[source."git+file:///home/juan/espejos/mirilla.git?rev=c7de2e8"]
+git = "file:///home/juan/espejos/mirilla.git"
+rev = "c7de2e8"
+replace-with = "vendored-sources"
+
+[source."git+file:///home/juan/espejos/quipu.git?rev=cd30c1b0183ab7c68a8122ca4f269ae04e7e2d27"]
+git = "file:///home/juan/espejos/quipu.git"
+rev = "cd30c1b0183ab7c68a8122ca4f269ae04e7e2d27"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

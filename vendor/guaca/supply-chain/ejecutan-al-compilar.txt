@@ -1,0 +1,127 @@
+# Lo que ejecuta código en NUESTRA máquina al compilar.
+#
+# Cada línea es `<objeto-git> <ruta>`. Lo genera y lo compara
+# `conocimiento/lo-que-corre-al-compilar`.
+#
+# UNA LÍNEA NUEVA AQUÍ ES CÓDIGO NUEVO QUE CORRE AL COMPILAR. Antes de
+# aceptarla, mírala: es el vector por el que entraron los gusanos de npm
+# y del AUR — no un paquete nuevo, una VERSIÓN nueva de uno que ya usabas.
+#
+# QUÉ ENTRA: el script de construcción de cada crate —el declarado con
+# `build =`, no solo el que se llama `build.rs`—, todo `.rs` que ese
+# script arrastre por `mod` o `include!`, las fuentes NATIVAS que compila
+# o enlaza (`.c`, `.S`, `.o`, `.a`…), los crates proc-macro y las
+# librerías que un `[build-dependencies]` nombra.
+#
+# NO SE FILTRA POR PLATAFORMA, y es deliberado: entran también los `.a` de
+# `winapi-*-windows-gnu`, que en Linux no se enlazan nunca. Filtrar por el
+# objetivo de HOY dejaría la superficie ensancharse en silencio el día que
+# se cruce-compile. El manifiesto no se lee entero: se lee su DIFF.
+#
+# LO QUE ESTO **NO** DICE, y se escribe porque decía lo contrario hasta el
+# 2026-08-14: NO es «el único momento en que puede entrar algo». El árbol
+# del PRODUCTO está congelado; el VERDE no. El CI hace `cargo install` de
+# cargo-audit y cargo-deny, que NO pasan por `vendor/` —medido: `cargo
+# install` ignora la sustitución de fuentes— y compilan sus propios
+# `build.rs` sin vigilar. Lo dijo la revisión de seguridad de ese día.
+#
+# TAMPOCO cubre lo que ENTRA en el binario sin correr al compilar: el
+# `src/` de cada crate. Eso lo cubre el anclaje contra crates.io
+# (`cargo vendor` a un temporal + `diff -r`), que hoy es un comando en un
+# comentario y no un paso — está registrado como tarea.
+#
+# Esto NO es una barrera criptográfica: quien pueda escribir en vendor/
+# puede escribir aquí. Lo que hace es que el cambio se VEA en el diff.
+# piezas vigiladas: 92
+7839ee9a2fd498f7cf57c92385b2b53c9ae97266 vendor/autocfg/src/error.rs
+69e6ffcf363dd95a7bf4dafbb1fb72eccb0d9376 vendor/autocfg/src/lib.rs
+e324ed18c1f3ba367de7bec373968e78c65e02ce vendor/autocfg/src/rustc.rs
+19188c12caa36d5b6c1edb8051b12dad68b2f939 vendor/autocfg/src/tests.rs
+9cf5b121fe5839743927390c8321af731877bdb3 vendor/autocfg/src/version.rs
+57c49f434e2858bbd8c4c78ac1917f664731660a vendor/cc/src/command_helpers.rs
+601cee6c4878cc9d83010982ef7cd08f3f0defa5 vendor/cc/src/detect_compiler_family.c
+f3830212f09ca342ae2ff538ef84116c34388644 vendor/cc/src/flags.rs
+80e2f39545f4f90728eb4677487505140bcf6e2b vendor/cc/src/lib.rs
+9ebd1ad56205960e302c2a076bacc21826da1874 vendor/cc/src/parallel/async_executor.rs
+9393a98ff1a04e400c32539c40f5726afb03201d vendor/cc/src/parallel/command_runner.rs
+56e34c81bdff6791fcc0fe88f3d60e2ddacc5f7f vendor/cc/src/parallel/job_token.rs
+09dfe125afbfc2fbea67ca2a7f80b7180aa40712 vendor/cc/src/parallel/mod.rs
+8533fec9ab2accdbeebda927daa7507149c6ff33 vendor/cc/src/parallel/stderr.rs
+ed432df5893792027537aeee9f75c2cd51dbed6a vendor/cc/src/target.rs
+26f17a7409c9fe4d910022e1dcc3cfc302488226 vendor/cc/src/target/apple.rs
+98bed9faddb93ed60fd585cfee2e1400cf816cc7 vendor/cc/src/target/generated.rs
+2bc3e1b928300ee619c939a460fc6c265a8e1727 vendor/cc/src/target/llvm.rs
+472b3134b09bf8712a551dfa3cc5a2ab9d3376ef vendor/cc/src/target/parser.rs
+310c91b0a07b94c5a6a8d8089fbee0f1d3e46414 vendor/cc/src/tempfile.rs
+9450088d4c394d6730107671603d6d35102c0dbc vendor/cc/src/tool.rs
+b66da630ebe4a080fdf4ac1ef2b62e64e0084295 vendor/cc/src/utilities.rs
+6e5920bb55b79ae6e5140772f32099fca52322ab vendor/curve25519-dalek-derive/src/lib.rs
+08b298daba04d908d295064137077474de5adedc vendor/curve25519-dalek/build.rs
+c27c7e3fa989bd42949071d49715befe83aa5a1b vendor/generic-array/build.rs
+560fc89f7193adc7eb7213703c876d7e72047d0d vendor/getrandom/build.rs
+7ef5d933900b3c696b8f917f7a35d6d5e709c890 vendor/iana-time-zone-haiku/build.rs
+d1c92cd3b7486889da348bae22d3591e0abc1963 vendor/iana-time-zone-haiku/src/implementation.cc
+67da9c63b02f10a494995155b491ff3ba01b9305 vendor/libc/build.rs
+fc5f81f832b5de7a1049486af89f72f046d47903 vendor/libc/etc/libc-util.py
+98b06befdb2d37c850eb6006bd1cdcab04691539 vendor/num-traits/build.rs
+26c3ed1bdcc51938a5ddffa89aeac7b333631da8 vendor/proc-macro2/build.rs
+50f98cb3bda60408b64c0e88a772486a692f9b07 vendor/quote/build.rs
+d14c768a4441fcab0a4b3fab74d0946a73055ddf vendor/rustc_version/src/lib.rs
+333e638c1ac04fc0eac865f5a21dfab3d1d880b6 vendor/rustversion/build/build.rs
+9b1db03c359622eef83a5a24629433ce69a4d9dc vendor/rustversion/build/rustc.rs
+6023d1eaf12fbc0bb6eacdd2a1a1a284b532a97a vendor/rustversion/src/attr.rs
+826725825d258f6cf69a28d07c8e362386286bd1 vendor/rustversion/src/bound.rs
+0e50c0396996c3146edad14b55f966fe4decb043 vendor/rustversion/src/constfn.rs
+aa4e71018014b0aed5a8a14a193999af062da188 vendor/rustversion/src/date.rs
+a99625b4aabf101204ac75b49951cae0ee919572 vendor/rustversion/src/error.rs
+ce70f2e4d68f9130cc43a21278e66a412d97470d vendor/rustversion/src/expand.rs
+45ed7d2156226c9da45be5522380849726be4bb6 vendor/rustversion/src/expr.rs
+722013c7d6c05f6fd481f05f48317b7962f7a2a0 vendor/rustversion/src/iter.rs
+1db5ba017373545fc1b98c2915fa441acff09a27 vendor/rustversion/src/lib.rs
+c8c021921df9b3319869b4c09bb69858254b9546 vendor/rustversion/src/release.rs
+102c80bcfce3d9694d533f0a3ba8dd0c66e9e628 vendor/rustversion/src/time.rs
+ebb6f1c012a453acd99899cc94490fb8f7529bdc vendor/rustversion/src/token.rs
+f4a69f51855b6d1fb4d6961b088ea9aa650c2e80 vendor/rustversion/src/version.rs
+3a8f4196cf891f5592ff7564e52343ffc2c95a57 vendor/serde/build.rs
+e3b8228efd706e83fc27cdce79e880053da9b1ec vendor/serde_core/build.rs
+ea49e9f714c6863ac9d4341d3084b56c5443cc4b vendor/serde_derive/src/bound.rs
+e7b8579d0059aee0c2e8baec9534fe667ea5fde5 vendor/serde_derive/src/de.rs
+6f5094ff4f7d7c01478a4ea97974dfefffbb0181 vendor/serde_derive/src/de/enum_.rs
+ead66acbdc2c974852ebc13ee4508ebc79bad632 vendor/serde_derive/src/de/enum_adjacently.rs
+1a4c36b4f3d8d454df5e29e6ed59deb2cfef04ee vendor/serde_derive/src/de/enum_externally.rs
+b669eef7e813c597588db348979e82b00ebbbf88 vendor/serde_derive/src/de/enum_internally.rs
+f66d98de1f867e40d07ff1051785ca4edc1924fa vendor/serde_derive/src/de/enum_untagged.rs
+8e67b96310ce6c60ffe34f6764b6c704d62cbdef vendor/serde_derive/src/de/identifier.rs
+6a5da232acda9c961c380fe78f675d94970ce1ce vendor/serde_derive/src/de/struct_.rs
+a76089fe658ecdaf8388a88a2586a3f8dea7fec9 vendor/serde_derive/src/de/tuple.rs
+0d15ef4db5cf95337f96d633882602773ad18aaf vendor/serde_derive/src/de/unit.rs
+3abdc1b25e258c5a503a74d6e52b19ef764c5ee0 vendor/serde_derive/src/deprecated.rs
+e0bca647aca0a9879a0356d13e46ce4202a10e19 vendor/serde_derive/src/dummy.rs
+6627c2669952e6eaa5b1d18145a0d2f35612ca76 vendor/serde_derive/src/fragment.rs
+1b89c6ad1a4d7d8ea5aa5606ea366faa0a62c73a vendor/serde_derive/src/internals/ast.rs
+c0f08f450676df98419a247827ca7ed3a180d3a2 vendor/serde_derive/src/internals/attr.rs
+8c8c02e75780eadfb8944578ddd2196239ca8d44 vendor/serde_derive/src/internals/case.rs
+da2a0fbdc8c01f88b9cc2890b771f45102a3c3c3 vendor/serde_derive/src/internals/check.rs
+30e1a7236053a51709bd59459e99ef6fb7595317 vendor/serde_derive/src/internals/ctxt.rs
+cd1e8105283a32b7baa529c37037c4b32518f5d7 vendor/serde_derive/src/internals/mod.rs
+4c59f9636d32ed090e71e5a7a7358e0417a15069 vendor/serde_derive/src/internals/name.rs
+ca0d54f635a3d49f3f7725cb3daca52b222c1322 vendor/serde_derive/src/internals/receiver.rs
+dcec7017b3155b6a8314b342b82010d3c005d914 vendor/serde_derive/src/internals/respan.rs
+59ef8de7c48133f14c737839a257ee505f6d9fa7 vendor/serde_derive/src/internals/symbol.rs
+7fcd1f7d061422578206a0567d73d6acb6794914 vendor/serde_derive/src/lib.rs
+b6173bb1925443d5e356174fdce314655af2aed6 vendor/serde_derive/src/pretend.rs
+6eb3b0febe20c64ce7576907978146503a6b6e35 vendor/serde_derive/src/ser.rs
+941cea40c1e3f1f22d6a08ff4ce4d93fc10e5bb3 vendor/serde_derive/src/this.rs
+bbf4a749bb4b8042c2ac11cb3d938b773a83b134 vendor/serde_json/build.rs
+e36b274c948e4cc7defc5291a358def9531c9d0c vendor/version_check/src/channel.rs
+de0b2d05d77324331afb30b2d67c0d8cb93e6f1c vendor/version_check/src/date.rs
+2bc38ce1b89a25e9eaaabb61f576855f8d9e62c9 vendor/version_check/src/lib.rs
+2bc18aae2b28cb3d86248cf59a0418ee266a3d98 vendor/version_check/src/version.rs
+b163f0c14fe7d9ef20f1ef9ad0acd5b26b663904 vendor/wasm-bindgen-macro/src/lib.rs
+2845cbfd8de4dc221ef8d279cf917bd8c27ec525 vendor/wasm-bindgen-shared/build.rs
+c0d4a3107621d5aea281228a4dfaefdf8dea6193 vendor/wasm-bindgen/build.rs
+d6a31c11495dfb015d912cd0f737bf9aa3d102cb vendor/windows-implement/src/gen.rs
+a883007fcc9bdce4a462d23d962bb8dc37a0778f vendor/windows-implement/src/lib.rs
+3f5c3493aa001f2d7c7795fe7a35a6a2cefbc2bf vendor/windows-implement/src/tests.rs
+9c65736e71433c67fac4cc4e9cc51ac43f4c2d15 vendor/windows-interface/src/lib.rs
+b07ec6e853ab01245846d31b9feb6c92b1cdd1d1 vendor/zmij/build.rs

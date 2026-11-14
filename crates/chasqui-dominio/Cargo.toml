@@ -1,0 +1,21 @@
+[package]
+name = "chasqui-dominio"
+description = "Los tipos y las reglas de Chasqui, sin base de datos ni red."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+# La respuesta del sistema del cliente llega en JSON y hay que rellenar con ella
+# la plantilla. Eso es manipular datos, no hablar por la red: sigue siendo puro y
+# se prueba sin levantar nada.
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

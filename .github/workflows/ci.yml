@@ -1,0 +1,170 @@
+# CI de chasqui. Nace el 2026-08-05, con el repositorio.
+#
+# POR QUÉ TAN TARDE, que es la lección y no un dato de archivo: chasqui vivía sin
+# remoto y sin CI, así que `cargo clippy -- -D warnings` no lo había corrido
+# nadie nunca. Al correrlo aparecieron DOS capas de avisos, y la segunda estaba
+# TAPADA por la primera —clippy se para en el primer crate con errores—. Las 410
+# pruebas pasaban, o sea que el repositorio parecía sano por el único lado que
+# alguien miraba. No era que la deuda no existiera: era que el instrumento no.
+
+name: CI
+
+# CADA COMMIT SE PRUEBA UNA VEZ, no dos. Una rama con PR abierto dispara los DOS
+# eventos sobre el mismo commit si `push` escucha en todas las ramas, y en un
+# repositorio PRIVADO los minutos de Actions se facturan — el cupo de la cuenta
+# ya se agotó una vez, el 2026-07-31.
+#
+# `push` se queda SOLO en `main`, que es lo que verifica el commit de fusión: el
+# resultado de un squash no lo ha probado nadie hasta que existe.
+#
+# LO QUE DEJA FUERA, deliberado: una rama empujada SIN PR no tiene CI. El flujo
+# es rama -> PR -> merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Un empuje nuevo cancela la corrida anterior de la misma referencia. En `main`
+# NO se cancela: cada commit de esa rama es un estado publicado y su resultado
+# tiene que quedar registrado.
+concurrency:
+  # El `-{sha}` en `main` NO es adorno: `cancel-in-progress: false` solo salva a
+  # la corrida EN CURSO — GitHub cancela las ENCOLADAS del mismo grupo. Con dos
+  # merges dentro de una ventana de CI, el commit de en medio no se medía jamás
+  # y la rama se veía verde por la corrida siguiente. Dándole a cada commit su
+  # propio grupo, la promesa del comentario de arriba se cumple de verdad.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  # Menor privilegio: este CI solo prueba, con checkout de solo lectura. Sin este
+  # bloque el GITHUB_TOKEN hereda permisos amplios.
+  contents: read
+
+jobs:
+  rust:
+    name: test + clippy
+    runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se degrada de 4 a 48
+    # minutos sale verde igual. 30 y no los 20 del estándar porque este job
+    # lleva 11 minutos ESTABLES (medido sobre las 5 últimas corridas, por job y
+    # no por workflow): 20 dejaría 1,8x de margen y saltaría por operación
+    # normal, que es la alarma que a la tercera nadie mira (directiva 21). Baja
+    # a 20 cuando se mida el efecto del `opt-level` de las dependencias.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # YA NO SE CONSTRUYE NINGUNA INTERFAZ CON npm. Desde el 2026-08-06 el panel
+      # se teje en el servidor con maud (módulo `chasqui-api::vista`, directiva
+      # 26): el HTML lo compila `rustc`, y htmx + `boi` van vendorizados y
+      # embebidos por `include_str!`. Desapareció `interfaz/` (Angular), su
+      # `package-lock.json`, `rust-embed` y `build.rs` — y con ellos el paso de
+      # `setup-node` + `npm ci && npm run build` que había aquí. La frontera
+      # `frontera_panel::el_panel_se_sirve_desde_el_binario` ya no busca
+      # `<app-root>` sino que el panel maud se sirve de verdad.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # `--all-targets` incluye pruebas y ejemplos: sin él, clippy no mira el
+      # código de prueba, que es justo donde estaban los nueve avisos de la
+      # primera capa.
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # EL NAVEGADOR ES UNA DEPENDENCIA DEL BANCO, así que se declara y se
+      # comprueba ANTES de correrlo. Dos pruebas de `frontera_panel` dibujan la
+      # pantalla en Chromium headless: es lo único que distingue «maud devolvió
+      # el HTML correcto» de «la pantalla se ve», porque con htmx un módulo que
+      # la CSP bloquea devuelve el mismo 200 con el mismo cuerpo.
+      #
+      # Se resuelve aquí y se pasa por `CHROMIUM` en vez de dejar que el test lo
+      # busque: si el runner cambia de imagen y deja de traer navegador, este
+      # paso falla diciendo QUÉ falta, en lugar de un `panic` dentro de una
+      # prueba. El test también falla ruidoso si no lo encuentra —nunca se salta
+      # solo (directiva 30)—, pero un fallo que explica el arreglo vale más.
+      - name: navegador para el E2E
+        run: |
+          for c in google-chrome google-chrome-stable chromium chromium-browser; do
+            if ruta=$(command -v "$c"); then
+              echo "CHROMIUM=$ruta" >> "$GITHUB_ENV"
+              break                      # el primero que haya, no el último
+            fi
+          done
+          if ! grep -q CHROMIUM "$GITHUB_ENV"; then
+            echo "::error::no hay navegador en el runner y el E2E del panel lo necesita"
+            exit 1
+          fi
+          grep CHROMIUM "$GITHUB_ENV"
+      # `--no-fail-fast` NO es opcional: sin él, cargo test aborta en el primer
+      # binario que falla y las pruebas de los otros crates no llegan a
+      # ejecutarse — un rojo que además esconde el estado del resto.
+      - name: test
+        run: cargo test --workspace --no-fail-fast
+
+  auditoria-deps:
+    name: cargo-audit (RustSec)
+    runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # El único ignore vive en .cargo/audit.toml, con su justificación medida.
+      - name: cargo-audit
+        run: |
+          # VERSIÓN FIJADA (2026-08-14). `cargo install` NO pasa por `vendor/`:
+          # ignora la sustitución de fuentes —medido con su pareja, el mismo error
+          # dentro y fuera del repo—, así que baja de crates.io y compila los
+          # `build.rs` de su propio árbol, sin vendorizar y sin vigilar. Sin
+          # `--version` eso es «lo último publicado el día que se corra». Y
+          # `--locked` NO lo cubre: fija el lock INTERNO de la herramienta.
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo audit
+
+  cadena-suministro:
+    name: cargo-deny (supply chain)
+    runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Exige que toda dependencia venga de una fuente autorizada —crates.io o
+      # nuestro repositorio de guaca—, prohíbe comodines de versión y controla
+      # licencias. Es la defensa contra que una dep se traiga de una fuente
+      # inesperada (vector del ataque Atomic Arch). Config en deny.toml.
+      - name: cargo-deny
+        run: |
+          # VERSIÓN FIJADA (2026-08-14). `cargo install` NO pasa por `vendor/`:
+          # ignora la sustitución de fuentes —medido con su pareja, el mismo error
+          # dentro y fuera del repo—, así que baja de crates.io y compila los
+          # `build.rs` de su propio árbol, sin vendorizar y sin vigilar. Sin
+          # `--version` eso es «lo último publicado el día que se corra». Y
+          # `--locked` NO lo cubre: fija el lock INTERNO de la herramienta.
+          cargo install cargo-deny --locked --version 0.20.2
+          cargo deny check
+
+# NO HAY UN TRABAJO `interfaz` APARTE, y es deliberado desde el 2026-08-05.
+# Lo hubo, y era redundante: el trabajo `rust` ya construye la interfaz porque
+# sus pruebas la necesitan, así que un `ng build` en un segundo trabajo pagaba
+# los mismos dos minutos para comprobar lo mismo. Si la interfaz no compila,
+# `rust` se pone rojo en su paso `interfaz`, antes de tocar cargo.
+#
+# `npm test` NO se corre en ningún sitio, a propósito: está cableado a vitest y
+# no hay ni un `.spec.ts`, así que daría cero pruebas — y cero pruebas no es
+# verde, es nada. Cuando exista la primera, se añade al trabajo `rust`.
+
+      # LA PUERTA DEL RE-VENDORIZADO: con el árbol congelado, el único momento en
+      # que puede entrar un script de construcción envenenado es al
+      # re-vendorizar — como entraron los gusanos de npm y del AUR. Se
+      # reconstruye la herramienta en el paso para que un binario viejo junto a
+      # una fuente nueva no pase por vigilante al día (directiva 38).
+      - name: Lo que corre al compilar sigue siendo lo aceptado
+        run: |
+          cargo build --release --quiet --manifest-path /mnt/data/conocimiento/lo-que-corre-al-compilar/Cargo.toml
+          /mnt/data/conocimiento/lo-que-corre-al-compilar/target/release/lo-que-corre-al-compilar "$PWD"

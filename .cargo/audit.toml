@@ -1,0 +1,30 @@
+# Configuración de cargo-audit (RustSec) para chasqui.
+#
+# El único ignore es preciso y justificado. NUNCA una categoría abierta: un
+# `ignore` amplio convierte la alarma en un sello, y a la tercera vez nadie mira
+# las que sí importan.
+#
+# RUSTSEC-2023-0071 — Marvin Attack (canal lateral de tiempo en `rsa` 0.9.x).
+#
+#   NO ALCANZABLE aquí, y está MEDIDO, no supuesto. Los tres datos, con su
+#   control positivo, tomados el 2026-08-05 en la primera corrida de cargo-audit
+#   que ha tenido este repositorio:
+#
+#     grep -A1 '^name = "rsa"$' Cargo.lock   ->  rsa 0.9.10   (SÍ está en el lock)
+#     cargo tree --workspace -i rsa          ->  "nothing to print"
+#     cargo tree --workspace -i sqlx-macros-core -> sí resuelve  (el comando FUNCIONA)
+#
+#   O sea: `rsa` figura en el lock porque `sqlx-macros-core` declara los tres
+#   backends para que el macro `migrate!` compile, pero NADIE lo alcanza en el
+#   grafo resuelto. chasqui pide `sqlx` con `default-features = false` y solo
+#   `sqlite`: no se conecta a MySQL ni ejecuta una operación RSA con clave
+#   privada, que es lo que el ataque necesita. cargo-audit lo marca porque lee el
+#   LOCK, no el grafo.
+#
+#   Sin arreglo disponible aguas arriba.
+#
+#   CUÁNDO DEJA DE SER IGNORABLE, para que esto no se herede sin pensar: el día
+#   que se habilite el backend `mysql` de sqlx. Entonces `cargo tree -i rsa`
+#   empieza a imprimir un camino, y ese es el disparador — no una fecha.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

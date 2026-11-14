@@ -1,0 +1,123 @@
+[workspace]
+members = [
+    "crates/chasqui-dominio",
+    "crates/chasqui-datos",
+    "crates/chasqui-api",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Juan Carlos Isaza <isazajuancarlos@gmail.com>"]
+license = "LicenseRef-Propietario-IsazaArenas"
+repository = "https://github.com/isazajuancarlos/chasqui"
+# Producto de VENTA (directiva 10): NUNCA se publica en crates.io. Explícito para
+# que un `cargo publish` accidental falle en vez de subir el producto.
+publish = false
+
+# Puerta de buenas prácticas de Rust, por DEFECTO. clippy lee esta tabla solo; no
+# cambia el comando del CI. Es una PUERTA (deny), no un aviso: el CI corre
+# `-D warnings`, que escala todo `warn` a error, así que aquí solo entra lo que se
+# está dispuesto a BLOQUEAR.
+[workspace.lints.clippy]
+redundant_clone = "deny"    # clon innecesario (rendimiento)
+needless_collect = "deny"   # `.collect()` para volver a iterar (rendimiento)
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    # `migrate` trae el motor; `macros` trae `migrate!`, que empotra los .sql en
+    # el binario. Hacen falta las dos: con solo `migrate` compila el motor y NO
+    # el macro, y el error no lo dice.
+    "migrate",
+    "macros",
+    "chrono",
+] }
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+# Salida HTTP hacia la API Graph de Meta. Sin OpenSSL: rustls, para que el
+# binario que se instala en casa del cliente no dependa de la libssl del sistema.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+# El identificador opaco de una conversación web. Azar del SISTEMA y no un
+# generador de espacio de usuario: ese identificador ES la llave de la
+# conversación, y un PRNG con estado predecible deja leer la de otro visitante.
+getrandom = "0.4"
+# Firma del webhook de Meta (X-Hub-Signature-256) y comparación en tiempo constante.
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+# Cifrado en reposo de las credenciales del cliente (token de Meta, clave del
+# modelo). Fijado por commit inmutable, no por tag: un tag es mutable y moverlo a
+# un commit malicioso nos lo traería al construir (lección del ataque a AUR).
+# Es el MISMO rev que usan medico, informes y tunjo: una sola versión auditada
+# para todos los productos.
+#
+# 2026-08-05: sube de `2ffe134` a `23395f3` (11 commits). Dos motivos, y el
+# primero es una obligación de licencia: el árbol de `2ffe134` **no lleva
+# `LICENSE` en la raíz**, así que lo que se vendorizaba al construir era una copia
+# de guaca sin el texto de la AGPL que la ampara. No lo caza ninguna máquina —
+# `cargo deny check licenses` lee el campo `license` del `Cargo.toml` de la
+# dependencia, no el árbol, y daba `licenses ok` con las dos revisiones; lo que
+# discrimina es `ls ~/.cargo/git/checkouts/guaca-*/<rev>/`. El segundo motivo es
+# que chasqui se había quedado 11 commits atrás de los demás consumidores, con
+# `freno.rs` (389 líneas) y los cinco vectores fijos de compatibilidad dentro.
+# chasqui NO depende de quipu directamente; el control se corre igual.
+#
+# 2026-08-12: sube a `v0.7.0` (`f769b12`), con lo que los CUATRO consumidores
+# quedan por fin en el mismo árbol — «un solo árbol de guaca en todo el
+# universo», que era el invariante que #477 dejaba a medias. El precio estaba
+# anunciado y es exactamente éste: `guaca::sesion` pasó a la forma de TRES campos
+# con revocación por `version`, así que las cuatro llamadas a `emitir` añaden
+# `, 0` («esta app no revoca») y **las sesiones abiertas se cierran una vez** al
+# desplegar. No se pide ninguna feature: chasqui no usa el segundo factor, y por
+# eso la 0.7 además le quita `totp-rs`, `sha1`, `base32` y `constant_time_eq`.
+guaca = { git = "file:///home/juan/espejos/guaca.git", rev = "d501eb30b5c948ce305051fc45db7ff72f8cff07", version = "0.7" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# Las DEPENDENCIAS optimizadas también en debug: deja NUESTROS crates en debug
+# puro —iteración y depurador intactos— y quita el peaje del banco. Medido en
+# quipu el 2026-08-05: 597,8 s -> 61,2 s (9,8x) con el MISMO conteo de pruebas.
+# `debug_assertions` sigue activo con opt-level > 0, comprobado con su caso rojo.
+[profile.dev.package."*"]
+opt-level = 3
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUIPU SALE DEL ESPEJO LOCAL, NO DE CRATES.IO
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Medido el 2026-08-14: este repositorio compilaba **quipu 0.11.0 desde
+# crates.io**, y esa versión está **YANKED** — la retiramos nosotros el
+# 2026-08-10 con el protocolo «solo local», junto con otras 23.
+#
+# No estaba roto: estaba DESCONECTADO. Funcionaba porque el `Cargo.lock` está
+# commiteado y cargo tolera un yank que ya está bloqueado. La consecuencia real
+# no era el yank sino la DERIVA: el árbol de quipu iba por 0.11.1 más todo lo
+# posterior mientras aquí se compilaba la 0.11.0, así que nueve días de cambios
+# en la librería criptográfica no llegaban. Comprobado comparando
+# `src/aleatorio.rs` del árbol con el vendorizado: eran distintos.
+#
+# Y para un repositorio NUEVO ni siquiera funcionaba: `cargo vendor` fallaba con
+# «version 0.11.0 is yanked», que es exactamente el fallo que abrió este trabajo.
+#
+# `[patch]` SOLO lo honra el paquete RAÍZ del workspace, no una dependencia, así
+# que va aquí y no en guaca — aunque guaca declare el requisito y arrastre a sus
+# consumidores al registro.
+#
+# El rev es el de `estable`, que por definición es lo publicado y no puede estar
+# roja. No se toma «el último por ser el último» (directiva 35).
+[patch.crates-io]
+quipu = { git = "file:///home/juan/espejos/quipu.git", rev = "cd30c1b0183ab7c68a8122ca4f269ae04e7e2d27" }

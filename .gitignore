@@ -1,0 +1,23 @@
+/target
+/interfaz/node_modules/
+/interfaz/dist/
+/interfaz/.angular/
+
+# Nunca en el repositorio: credenciales de clientes y conversaciones.
+.env
+*.db
+*.sqlite*
+/datos/
+# Y los respaldos, que son la base entera con otro nombre.
+/respaldos/
+
+# Volcados de conversación del agente (hook de Stop). Van sin ancla para que
+# valgan en cualquier nivel; pueden llevar secretos pegados en una sesión.
+conversaciones/
+
+# --- vendor/: árbol GENERADO, y ninguna regla de arriba le aplica ---
+# Medido el 2026-08-14 CLONANDO, que es la única forma de verlo: `git status` no
+# lista lo ignorado. Reglas globales como `target/` (sin barra inicial, casa a
+# cualquier profundidad), `*.bin`, `*.key` o `*.pem` se tragan archivos legítimos
+# de crates vendorizados, y el síntoma solo aparece en el clon.
+!vendor/**

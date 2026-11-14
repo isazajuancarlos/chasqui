@@ -1,0 +1,49 @@
+; SPDX-License-Identifier: LicenseRef-Propietario-IsazaArenas
+; Copyright (c) 2026 Juan Carlos Isaza
+;
+; Respaldo diario, verificado. NO para el servicio: `chasqui respaldar` usa
+; `VACUUM INTO`, que toma la instantánea bajo una transacción de lectura.
+;
+; Y se verifica solo: si la copia no cuadra con el origen, la orden sale con
+; error, la unidad queda en `failed` y `systemctl --failed` lo enseña. Un
+; respaldo que falla en silencio es peor que no tenerlo, porque se descubre el
+; único día en que se mira.
+[Unit]
+Description=Chasqui — respaldo diario, verificado
+After=network.target
+
+[Service]
+Type=oneshot
+User=chasqui
+Group=chasqui
+WorkingDirectory=/var/lib/chasqui
+EnvironmentFile=/etc/chasqui/chasqui.env
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chasqui /var/respaldos/chasqui
+NoNewPrivileges=true
+PrivateTmp=true
+
+; La carpeta lleva la fecha: un respaldo que se pisa a sí mismo cada noche no
+; protege del error que se descubre tres días después, que es el caso normal.
+ExecStart=/bin/sh -c '/opt/chasqui/chasqui respaldar /var/respaldos/chasqui/chasqui-$(date +%%F)'
+
+; Y se podan los viejos.
+;
+; ESTE NÚMERO ES UNA DECISIÓN JURÍDICA, NO UN AJUSTE TÉCNICO. `chasqui olvidar`
+; ejerce el derecho de supresión sobre la base viva, pero no alcanza a las copias
+; de ayer: mientras un respaldo exista, ese dato existe. Así que el plazo de aquí
+; es el plazo REAL en que se hace efectiva una supresión, y tiene que ser el
+; mismo que declare la política de tratamiento del responsable. Cámbielo en los
+; dos sitios o en ninguno.
+;
+; El borrado se acota EXACTAMENTE a las carpetas que esta unidad crea
+; —`chasqui-<fecha>` bajo /var/respaldos/chasqui— y a nada más: un `find` con un
+; alcance mayor que el conjunto que la corrida reescribe es pérdida de datos que
+; no se ve en la primera vuelta, solo en la segunda.
+ExecStartPost=/usr/bin/find /var/respaldos/chasqui -mindepth 1 -maxdepth 1 -type d -name 'chasqui-*' -mtime +30 -exec rm -rf {} +
+
+[Install]
+WantedBy=multi-user.target

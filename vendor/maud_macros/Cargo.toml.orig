@@ -1,0 +1,22 @@
+[package]
+name = "maud_macros"
+# When releasing a new version, please update html_root_url in src/lib.rs
+version = "0.27.0"
+documentation = "https://docs.rs/maud_macros/"
+description = "Internal crate. Please use 'maud' instead."
+
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+syn = { version = "2", features = ["extra-traits", "full"] }
+quote = "1.0.7"
+proc-macro2 = "1.0.23"
+proc-macro2-diagnostics = { version = "0.10", default-features = false }
+
+[lib]
+name = "maud_macros"
+proc-macro = true

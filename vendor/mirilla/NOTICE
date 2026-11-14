@@ -1,0 +1,15 @@
+mirilla
+Copyright 2026 Juan Carlos Isaza
+
+Este producto se distribuye bajo la licencia MIT (ver LICENSE).
+
+El titular de los derechos es **Isaza Arenas** (persona natural). «Xiliux» es
+una marca comercial y NO es una persona jurídica: no ostenta titularidad sobre
+este código.
+
+Dependencias de terceros y sus licencias:
+  · libc        — MIT OR Apache-2.0
+  · serde_json  — MIT OR Apache-2.0
+
+Requiere Chromium o Google Chrome instalado en el sistema; no lo distribuye ni
+lo empaqueta.

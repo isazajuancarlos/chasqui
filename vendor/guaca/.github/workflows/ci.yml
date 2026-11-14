@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# CI de guaca: test + clippy. La fachada de protección la consumen medico e
+# informes por dep git anclada a tag; que se rompa aquí no debe descubrirse allá.
+name: CI
+
+# CADA COMMIT SE PRUEBA UNA VEZ, no dos.
+#
+# Antes esto decía `push: branches: ["**"]` junto a `pull_request`, y una rama con
+# PR abierto disparaba LOS DOS eventos sobre el mismo commit: los checks corrían
+# por duplicado. En un repositorio PRIVADO los minutos de Actions se facturan, y
+# el 2026-07-31 el cupo de la cuenta se agotó — con esto se deja de gastarlo al
+# doble.
+#
+# `push` se queda SOLO en `main`, que es lo que verifica el commit de fusión: el
+# resultado de un squash no lo ha probado nadie hasta que existe. Las ramas las
+# cubre `pull_request`, que vuelve a correr en cada empuje mientras el PR esté
+# abierto (`synchronize`).
+#
+# LO QUE DEJA FUERA: una rama empujada SIN PR ya no tiene CI. Es deliberado — el
+# flujo es rama -> PR -> merge, y la protección de `main` exige el PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Un empuje nuevo cancela la corrida anterior de la misma referencia: corregir un
+# PR tres veces seguidas dejaba tres corridas compitiendo cuando solo importa la
+# última. En `main` NO se cancela — cada commit de esa rama es un estado publicado
+# y su resultado tiene que quedar registrado.
+concurrency:
+  # El `-{sha}` en `main` NO es adorno: `cancel-in-progress: false` solo salva a
+  # la corrida EN CURSO — GitHub cancela las ENCOLADAS del mismo grupo. Con dos
+  # merges dentro de una ventana de CI, el commit de en medio no se medía jamás
+  # y la rama se veía verde por la corrida siguiente. Dándole a cada commit su
+  # propio grupo, la promesa del comentario de arriba se cumple de verdad.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  # Menor privilegio (supply-chain #203): este CI solo prueba, con checkout de
+  # solo lectura. Sin este bloque el GITHUB_TOKEN hereda permisos amplios.
+  contents: read
+
+jobs:
+  rust:
+    name: test + clippy
+    runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+      # Las dos configuraciones, porque `default = []` deja `dosfactores` y `qr`
+      # fuera: sin esto, 17 pruebas no las corre nadie y el verde de arriba no
+      # las cubre.
+      - name: test (todas las features)
+        run: cargo test --all-features
+      # EL GUARDIÁN DE LOS VECTORES FIJOS (#489). Un ancla que cambia declara que
+      # lo guardado hasta hoy dejó de leerse; eso lo defendía un comentario, y un
+      # rojo que se apaga pegando un literal nuevo es una directiva en prosa con
+      # otra ropa (directiva 6). Exige la entrada en COMPATIBILIDAD.md nombrando
+      # el ancla. No prohíbe romper: obliga a declararlo donde se lee.
+      #
+      # NO recibe base ni mira el diff: compara el ÁRBOL contra `vectores.lock`.
+      # Por eso mide lo mismo en `push`, en `pull_request` y en local — la primera
+      # versión leía `git diff … origin/main` y en un `push` a `main` eso es el
+      # diff VACÍO, así que el commit de fusión no se medía nunca.
+      - name: vectores fijos declarados
+        run: cargo run --quiet --bin vectores_fijos
+
+  cadena-suministro:
+    name: cargo-deny (supply chain)
+    runs-on: ubuntu-latest
+    # El techo, no la duración esperada: sin él un CI que se
+    # degrada de 4 a 48 minutos sale verde igual.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # cargo-deny: exige que toda dependencia venga de una fuente autorizada
+      # (crates.io), prohíbe comodines de versión y controla licencias — la
+      # defensa contra que una dep se traiga de una fuente inesperada (vector del
+      # ataque Atomic Arch). Config en deny.toml.
+      - name: cargo-deny
+        run: |
+          # VERSIÓN FIJADA (2026-08-14). `cargo install` NO pasa por `vendor/`:
+          # ignora la sustitución de fuentes —medido con su pareja, el mismo error
+          # dentro y fuera del repo—, así que baja de crates.io y compila los
+          # `build.rs` de su propio árbol, sin vendorizar y sin vigilar. Sin
+          # `--version` eso es «lo último publicado el día que se corra». Y
+          # `--locked` NO lo cubre: fija el lock INTERNO de la herramienta.
+          cargo install cargo-deny --locked --version 0.20.2
+          cargo deny check
+
+      # LA PUERTA DEL RE-VENDORIZADO. El árbol está congelado, así que el único
+      # momento en que puede entrar un script de construcción envenenado es al
+      # re-vendorizar — que es exactamente como entraron los gusanos de npm y
+      # del AUR: no un paquete nuevo, una VERSIÓN nueva de uno que ya usabas.
+      # Se reconstruye la herramienta en el propio paso para que un binario
+      # viejo junto a una fuente nueva no pase por vigilante al día.
+      - name: Lo que corre al compilar sigue siendo lo aceptado
+        run: |
+          cargo build --release --quiet --manifest-path /mnt/data/conocimiento/lo-que-corre-al-compilar/Cargo.toml
+          /mnt/data/conocimiento/lo-que-corre-al-compilar/target/release/lo-que-corre-al-compilar "$PWD"

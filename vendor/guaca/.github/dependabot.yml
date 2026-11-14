@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Aviso automático de actualizaciones. Existe porque el 2026-08-04, al revisar
+# las de guaca a mano, salió que NADA estaba pendiente por seguridad —1169 avisos
+# en la base de RustSec, `cargo deny check advisories` en verde— pero que nada
+# iba a avisar el día que sí lo estuviera. `cargo-deny` corre en cada PR y es la
+# red que MUERDE; esto es lo que hace que haya un PR que revisar.
+#
+# NUNCA poner `target-branch` en una entrada. Desconecta esa entrada de las
+# actualizaciones de SEGURIDAD —que van siempre contra la rama por defecto— y lo
+# hace en silencio: se queda pareciendo que vigila. El ruido se arregla
+# agrupando, que es lo de abajo, no cambiando de rama.
+version: 2
+updates:
+  # --- Las dependencias de Rust -------------------------------------------
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # Un solo PR con todo lo compatible, en vez de uno por crate. guaca tiene
+    # diez dependencias directas y casi todo su árbol es RustCrypto, que se
+    # mueve en bloque: separarlas produce PR que no compilan por su cuenta.
+    groups:
+      compatibles:
+        # `patterns` NO ES OPCIONAL, aunque el grupo parezca completo sin él.
+        # `update-types` solo FILTRA lo que ya entró al grupo; lo que SELECCIONA
+        # quién entra es `patterns`. Sin él el grupo queda vacío y dependabot
+        # abre un PR por crate, en silencio y sin error de sintaxis.
+        #
+        # Medido el 2026-08-04, en la primera corrida tras encenderlo: este
+        # grupo, sin `patterns`, produjo CUATRO PR sueltos (#6 hmac, #7 sha2,
+        # #8 password-hash, #9 base64); el grupo `acciones` de abajo, que sí lo
+        # lleva, produjo UNO. Mismo archivo y misma corrida: es la pareja que
+        # discrimina.
+        #
+        # Y ARREGLAR ESTO NO REHACE LO YA OFRECIDO, ni abriendo ni cerrando.
+        # Dependabot lleva una lista `existing-pull-requests` por (dependencia,
+        # versión), y **un PR cerrado SIGUE en ella**. Así que no vuelve a
+        # ofrecer esas versiones —agrupadas ni sueltas— hasta que salga una
+        # versión distinta. El 2026-08-04 se probaron las dos vías y ninguna
+        # produjo el PR agrupado: primero con los cuatro abiertos, y después
+        # cerrándolos. Las dos corridas terminaron en `success`.
+        #
+        # EL CONTROL NO ES QUE APAREZCA UN PR — eso puede tardar semanas, hasta
+        # que alguna de esas crates publique. El control es el propio job, que
+        # se lee en el log de la corrida `dynamic` de dependabot:
+        #
+        #   gh run list --limit 5 --json databaseId,event,displayTitle \
+        #     --jq '.[]|select(.event=="dynamic" and (.displayTitle|test("cargo")))|.databaseId' \
+        #     | head -1 | xargs -I{} gh run view {} --log | grep -m1 'Job definition'
+        #
+        # Con el arreglo puesto, ahí sale literalmente
+        # `"dependency-groups":[{"name":"compatibles","rules":{"patterns":["*"],
+        # "update-types":["minor","patch"]}}]`. Eso prueba que la regla está viva
+        # aunque todavía no haya nada que agrupar. Sin `patterns`, `rules` salía
+        # sin él.
+        patterns: ["*"]
+        update-types: [minor, patch]
+    # Y no era cosmético. `sha2` y `hmac` son la misma generación de RustCrypto y
+    # TIENEN que moverse juntos: por separado, el PR de sha2 0.11 muere con
+    # `error[E0277]: the trait bound sha2::Sha256: hmac::digest::core_api::
+    # CoreProxy is not satisfied`. Cuatro PR individuales que no pueden estar
+    # verdes nunca es peor que ninguno — un PR rojo que nadie puede arreglar se
+    # ignora, y a la tercera vez ya nadie mira los de dependabot.
+    #
+    # LO QUE DEPENDABOT CUENTA COMO «MAYOR» EN UN CRATE 0.x, medido el 2026-08-05
+    # y NO deducido de la especificación de semver — este comentario decía lo
+    # contrario y estaba mal.
+    #
+    # La creencia escrita era: «para semver, 0.22 -> 0.23 es MINOR porque el
+    # mayor sigue siendo 0, así que entran en el grupo». **Es falso para
+    # Dependabot.** En la primera corrida del `dependabot.yml` de chasqui, con
+    # este mismo grupo y este mismo `update-types`, salieron TRES PR SUELTOS:
+    #
+    #     #2  hmac  0.12.1 -> 0.13.0     fuera del grupo
+    #     #3  sqlx  0.8.6  -> 0.9.0      fuera del grupo
+    #     #4  sha2  0.10.9 -> 0.11.0     fuera del grupo
+    #     #1  actions/setup-node 5 -> 7  «in the acciones group»  <- agrupó
+    #
+    # El grupo `acciones`, que NO lleva `update-types`, sí agrupó — misma corrida,
+    # mismo archivo: es la pareja que discrimina. Dependabot trata el salto de
+    # minor en un 0.x como MAYOR, y `update-types: [minor, patch]` lo deja fuera.
+    #
+    # Y ESO TIENE UNA CONSECUENCIA QUE YA MORDIÓ: `hmac` y `sha2` son la misma
+    # generación de RustCrypto y TIENEN que moverse juntos —por separado, el de
+    # sha2 muere con `error[E0277]: the trait bound sha2::Sha256: CoreProxy is
+    # not satisfied`—. O sea que el `update-types` que se puso para agruparlos es
+    # justo lo que impide que se agrupen. Quitarlo los junta, al precio de meter
+    # también los saltos de 1.x a 2.x en el PR semanal. Es una decisión abierta;
+    # hasta tomarla, esos PR llegan sueltos y hay que cerrarlos o resolverlos a
+    # mano — no dejarlos rojos, que es como se deja de mirar los de dependabot.
+    open-pull-requests-limit: 5
+
+  # --- Las acciones del CI -------------------------------------------------
+  # `actions/checkout`, `dtolnay/rust-toolchain` y `Swatinem/rust-cache` corren
+  # con el `GITHUB_TOKEN` del repositorio. Una acción sin mantener es superficie
+  # de cadena de suministro igual que un crate, y no la mira `cargo-deny`.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      acciones:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
